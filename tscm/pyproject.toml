@@ -1,0 +1,43 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "sweep-tscm"
+version = "0.1.0"
+description = "Passive multi-band device discovery and counter-surveillance sweep (BLE, BT Classic, Wi-Fi, sub-GHz, RF, IR)"
+readme = "README.md"
+requires-python = ">=3.10"
+license = { text = "MIT" }
+keywords = ["bluetooth", "ble", "wifi", "sdr", "tscm", "counter-surveillance", "rf", "infrared"]
+classifiers = [
+    "Environment :: Console",
+    "Intended Audience :: End Users/Desktop",
+    "Topic :: Security",
+    "Topic :: System :: Networking :: Monitoring",
+]
+
+# The core runs on the standard library alone. Everything optional is optional
+# on purpose: a tool you may need to run on an unfamiliar machine should not
+# require a package index.
+dependencies = []
+
+[project.optional-dependencies]
+ble = ["bleak>=0.21"]
+serial = ["pyserial>=3.5"]
+all = ["bleak>=0.21", "pyserial>=3.5"]
+dev = ["pytest>=7", "pytest-asyncio>=0.23"]
+
+[project.scripts]
+sweep = "sweep.cli:main"
+
+[tool.setuptools.packages.find]
+include = ["sweep*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+asyncio_mode = "auto"
+
+[tool.ruff]
+line-length = 100
+target-version = "py310"
