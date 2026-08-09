@@ -225,6 +225,26 @@ CATALOGUE_BY_BAND = {b.band: b for b in CATALOGUE}
 # ---------------------------------------------------------------------------
 
 CLIENT_NOTES: dict[str, dict[str, Any]] = {
+    # Selected when the browser connects over loopback: same machine, same
+    # radios. This is the ordinary desktop case and it deserves to be told
+    # plainly, because "the radios are on the host" is technically true and
+    # actively misleading when the host is the thing you are sitting at.
+    "host_local": {
+        "label": "this machine",
+        "can_sense": True,
+        "headline": "You are on the machine doing the sensing.",
+        "why": (
+            "The browser is just the interface — but it is running on the same "
+            "computer as the radios, so everything listed here is what is "
+            "physically near you right now."
+        ),
+        "tips": [
+            "Walk around with the laptop and use the finder to close in on a device.",
+            "Press m (or Mark location) whenever you move rooms, so anything that "
+            "follows you gets flagged.",
+            "Check the Coverage tab for the bands this machine cannot hear yet.",
+        ],
+    },
     "ios": {
         "label": "iPhone or iPad",
         "can_sense": False,

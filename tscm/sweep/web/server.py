@@ -126,7 +126,12 @@ class WebServer:
                 await self._stream_events(writer)
                 return
 
-            status, payload, ctype, extra = await self._route(method, path, query, body)
+            # Whether the browser is on the same machine as the radios changes
+            # what the UI should say, so the peer address is routed through.
+            peer = writer.get_extra_info("peername")
+            peer_host = peer[0] if isinstance(peer, tuple) and peer else ""
+            status, payload, ctype, extra = await self._route(
+                method, path, query, body, peer_host)
             await self._send(writer, status, payload, ctype, extra)
         except (ConnectionResetError, BrokenPipeError, asyncio.IncompleteReadError):
             pass
@@ -194,7 +199,8 @@ class WebServer:
     # -- routes ----------------------------------------------------------
 
     async def _route(
-        self, method: str, path: str, query: dict[str, list[str]], body: bytes
+        self, method: str, path: str, query: dict[str, list[str]], body: bytes,
+        peer_host: str = "",
     ) -> tuple[int, bytes, str, dict[str, str]]:
         extra: dict[str, str] = {}
         if self.token:
@@ -220,13 +226,15 @@ class WebServer:
             from ..core import capability
 
             payload = capability.assess(self.engine.sensors)
-            # The client needs to know it is not the host — that distinction is
-            # the whole point of the Coverage screen.
-            payload["server"] = {
-                "loopback": self.loopback,
-                "host_header_ok": True,
-                "url": self.url,
+            # A loopback peer means the browser is on the same machine as the
+            # radios — the user *is* the sensor, and telling them the radios are
+            # "on the host" is both true and completely useless.
+            on_host = peer_host in ("127.0.0.1", "::1", "::ffff:127.0.0.1")
+            payload["client"] = {
+                "is_host": on_host,
+                "peer": peer_host,
             }
+            payload["server"] = {"loopback": self.loopback, "url": self.url}
             return 200, _json(payload), "application/json", extra
 
         if method == "GET" and path.startswith("/api/device/"):

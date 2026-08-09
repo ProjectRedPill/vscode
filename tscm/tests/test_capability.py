@@ -46,10 +46,13 @@ def test_upgrade_actions_are_actionable_not_restatements():
             assert upgrade.cost == "free"
 
 
-def test_client_notes_never_claim_a_client_can_sense():
+def test_only_the_on_host_note_claims_the_viewer_can_sense():
+    """A browser on the sensing machine really is the sensor; a remote one is
+    never allowed to imply it is."""
     for key, note in capability.CLIENT_NOTES.items():
-        assert note["can_sense"] is False, key
-        assert note["headline"] and note["why"]
+        assert note["headline"] and note["why"], key
+        expected = key == "host_local"
+        assert note["can_sense"] is expected, key
 
 
 # ---------------------------------------------------------------------------

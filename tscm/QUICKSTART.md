@@ -89,28 +89,43 @@ sweep sweep --duration 300 --out room.md  # timed sweep, writes a report
    stops shouting, so real alerts are not buried under your own headphones.
 
 3. **Check the Coverage tab.** It shows what you are sensing, what you are blind
-   to, and what each upgrade would unlock. It also states plainly that the phone
-   you are holding detects nothing — the radios are on the host machine.
+   to, and what each upgrade would unlock. It also tells you which machine is
+   doing the sensing — the one you are using, or a remote one you are viewing.
 
 4. **Use the finder.** Tap a device, then **Find it**. Walk a few metres, stand
    still for about ten seconds, read the arrow. Trust the trend, not any single
    reading.
 
-## Where things run
+## Where the detecting happens
+
+**On your PC, the detecting happens on your PC.** Run `sweep serve` on your
+laptop, open it in that laptop's browser, and the devices you see are the ones
+physically around that laptop. There is no server anywhere else and nothing
+leaves the machine. The UI says so directly when the browser is on the same
+machine as the radios.
+
+"Host" only becomes a separate thing when you *choose* to split it:
 
 ```
-    HOST                                  CLIENT
-    the machine running `sweep`           whatever you view the UI on
-    laptop, or a Raspberry Pi             iPhone, Android, laptop browser
+    sweep runs here                       you look at it here
+    ───────────────                       ──────────────────
+    your laptop                    →      the same laptop's browser
+                                          (the normal case — you are the sensor)
 
-    ✅ all the radios                     ❌ contributes nothing to detection
-    ✅ all detection                      ✅ full control of the sweep
+    a laptop or Raspberry Pi       →      your iPhone over Wi-Fi
+    in the room being swept               (the phone is a remote screen)
 ```
 
-This split is a platform constraint, not a design shortcut. iOS gives apps no
-`libusb` (so an SDR in the USB-C port is inert), no raw Bluetooth HCI, no Wi-Fi
-monitor mode, and rotating per-app UUIDs instead of BLE MAC addresses. Your
-phone cannot be the sensor. It makes an excellent screen.
+The second row is useful for ergonomics — sweeping a room means moving a probe
+around, which is easier when the computer can stay on a desk — and it is the
+*only* option on iOS, because an iPhone cannot run the sensors at all.
+
+That is a platform restriction, not a shortcut: iOS gives apps no `libusb` (an
+SDR in the USB-C port is inert), no Wi-Fi scanning API, no monitor mode, and
+rotating per-app UUIDs instead of BLE MAC addresses. A native iOS app could
+cover about 40% of one band out of six, with no stable device identity.
+[HARDWARE.md](HARDWARE.md) has the full API-by-API breakdown, including why
+Android is genuinely different.
 
 See [HARDWARE.md](HARDWARE.md) for what to plug into the host.
 

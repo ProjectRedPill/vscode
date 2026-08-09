@@ -87,6 +87,35 @@ async def ui(tmp_path):
     await engine.shutdown()
 
 
+@pytest.fixture
+async def ui_remote(tmp_path):
+    """Same, but reached over a LAN address so the peer is not loopback."""
+    from sweep.core import capability
+
+    addresses = capability.lan_addresses()
+    if not addresses:
+        pytest.skip("no non-loopback address available in this environment")
+
+    engine = Engine(EngineConfig(sensors=[], db_path=str(tmp_path / "uir.db")))
+    await engine.probe()
+    engine.handle(adv("AA:BB:CC:00:00:01", name="Test Phone", device_class="phone"))
+    engine.evaluate_all()
+
+    server = WebServer(engine, host="0.0.0.0", port=0)
+    await server.start()
+    port = server._server.sockets[0].getsockname()[1]  # type: ignore[union-attr]
+    server.port = port
+    url = f"http://{addresses[0]}:{port}/?t={server.token}"
+
+    async with async_playwright() as pw:
+        browser = await pw.chromium.launch(executable_path=CHROMIUM)
+        yield engine, browser, url
+        await browser.close()
+
+    await server.stop()
+    await engine.shutdown()
+
+
 async def _open(browser, url, **ctx):
     context = await browser.new_context(**ctx)
     page = await context.new_page()
@@ -251,9 +280,13 @@ async def test_live_updates_arrive_over_sse(ui):
 # Coverage view and client awareness
 # ---------------------------------------------------------------------------
 
-async def test_iphone_is_told_it_is_a_screen_not_a_sensor(ui):
-    """The single most misunderstood thing about this tool, so it is asserted."""
-    _, browser, url = ui
+async def test_iphone_is_told_it_is_a_screen_not_a_sensor(ui_remote):
+    """The single most misunderstood thing about this tool, so it is asserted.
+
+    Uses the off-loopback fixture: a phone viewing over the LAN genuinely is
+    not the sensor, which is the case this messaging exists for.
+    """
+    _, browser, url = ui_remote
     ctx, page, problems = await _open(browser, url, **IPHONE)
     try:
         assert await page.locator("#hostcard").is_visible()
@@ -278,8 +311,8 @@ async def test_iphone_is_told_it_is_a_screen_not_a_sensor(ui):
         await ctx.close()
 
 
-async def test_desktop_gets_desktop_wording_not_phone_wording(ui):
-    _, browser, url = ui
+async def test_desktop_gets_desktop_wording_not_phone_wording(ui_remote):
+    _, browser, url = ui_remote
     ctx, page, _ = await _open(browser, url, **DESKTOP)
     try:
         headline = await page.locator("#host-headline").text_content()
@@ -288,8 +321,8 @@ async def test_desktop_gets_desktop_wording_not_phone_wording(ui):
         await ctx.close()
 
 
-async def test_coverage_lists_every_band_with_upgrades(ui):
-    _, browser, url = ui
+async def test_coverage_lists_every_band_with_upgrades(ui_remote):
+    _, browser, url = ui_remote
     ctx, page, problems = await _open(browser, url, **IPHONE)
     try:
         await page.locator("#btn-coverage").click()
@@ -341,5 +374,42 @@ async def test_dock_stays_on_one_row_on_a_phone(ui):
             return tops.size;
         }""")
         assert rows == 1, f"dock wrapped onto {rows} rows"
+    finally:
+        await ctx.close()
+
+
+async def test_a_browser_on_the_host_is_told_it_is_the_sensor(ui):
+    """Regression: a desktop browser on the sensing machine was told "the radios
+    are on the host" — true, useless, and the opposite of reassuring when the
+    host is the laptop you are sitting at."""
+    _, browser, url = ui
+    ctx, page, problems = await _open(browser, url, **DESKTOP)
+    try:
+        headline = await page.locator("#host-headline").text_content()
+        assert "machine doing the sensing" in headline
+
+        summary = await page.locator("#host-summary").text_content()
+        assert "devices around you" in summary
+        assert "detects nothing itself" not in summary
+
+        await page.locator("#btn-coverage").click()
+        await page.wait_for_timeout(700)
+        where = await page.locator("#cov-where").text_content()
+        assert "the machine you are using" in where
+        assert "detects nothing itself" not in where
+        assert problems == []
+    finally:
+        await ctx.close()
+
+
+async def test_a_phone_on_the_host_still_gets_the_host_message(ui):
+    # Deliberately the loopback fixture: same UA, opposite verdict.
+    """The connection decides, not the user agent — an iPhone-shaped UA over
+    loopback is a simulator or a port-forward, and it really is on the host."""
+    _, browser, url = ui
+    ctx, page, _ = await _open(browser, url, **IPHONE)
+    try:
+        headline = await page.locator("#host-headline").text_content()
+        assert "machine doing the sensing" in headline
     finally:
         await ctx.close()

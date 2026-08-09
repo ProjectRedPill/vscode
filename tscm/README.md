@@ -74,9 +74,10 @@ Pi, because that is the only arrangement iOS allows (see
   works with no internet at all.
 - Live updates over Server-Sent Events; reconnects by itself when a phone wakes.
 - Dark and light, following the system theme with a manual override.
-- Knows whether you are viewing from an iPhone, an Android or a desktop, and
-  says plainly that the device in your hand is a screen rather than a sensor —
-  with the iOS-specific things it *can* usefully do.
+- Knows whether the browser is on the sensing machine or looking at it from
+  somewhere else, and says which. On the host it tells you these are the devices
+  around *you*; from a phone it says plainly that the phone is a screen, and
+  lists the things iOS *can* usefully do.
 - A **Coverage** tab showing every band: what it detects, what you are blind to
   without it, and the exact command or purchase that would switch it on.
 - Verified in Chromium at desktop and iPhone viewports by the tests in
@@ -280,7 +281,7 @@ pip install -e '.[dev]'
 python -m pytest tests/ -q
 ```
 
-127 tests, no radio hardware required. The decoding layer (`intel/`) is pure
+129 tests, no radio hardware required. The decoding layer (`intel/`) is pure
 functions over bytes and is fully covered; `tests/test_engine.py` drives the
 real engine end to end through a scripted fake sensor; `tests/test_web.py`
 exercises the HTTP and SSE surface over real TCP; `tests/test_web_ui.py` drives

@@ -444,6 +444,15 @@ function drawSpark(history) {
 
 const CLIENT_ICON = { ios: '\u{1F4F1}', android: '\u{1F4F1}', desktop: '\u{1F5A5}\uFE0F' };
 
+/* Which explanation applies. Connection beats user agent: a desktop browser
+   talking over loopback is running on the sensing machine, whereas the same
+   browser on another laptop is not. */
+function noteFor(cap) {
+  const notes = cap.client_notes || {};
+  if (cap.client?.is_host && notes.host_local) return notes.host_local;
+  return notes[S.client] || notes.desktop;
+}
+
 function renderHostCard() {
   const cap = S.capability;
   const card = $('hostcard');
@@ -453,15 +462,20 @@ function renderHostCard() {
   try { dismissed = localStorage.getItem('sweep-hostcard') === 'dismissed'; } catch {}
   if (dismissed) { card.hidden = true; return; }
 
-  const note = (cap.client_notes || {})[S.client] || cap.client_notes?.desktop;
+  const note = noteFor(cap);
   if (!note) { card.hidden = true; return; }
 
   const host = cap.host || {};
-  $('host-icon').textContent = CLIENT_ICON[S.client] || '\u{1F5A5}\uFE0F';
+  const onHost = !!cap.client?.is_host;
+  $('host-icon').textContent = onHost
+    ? '\u{1F4E1}'
+    : (CLIENT_ICON[S.client] || '\u{1F5A5}\uFE0F');
   $('host-headline').textContent = note.headline;
-  $('host-summary').textContent =
-    `Radios on ${host.hostname} (${host.pretty}). ` +
-    `You are viewing from ${note.label}, which detects nothing itself.`;
+  $('host-summary').textContent = onHost
+    ? `Sensing on ${host.hostname} (${host.pretty} ${host.machine}) — the machine `
+      + `you are using. These are the devices around you.`
+    : `Radios on ${host.hostname} (${host.pretty}). `
+      + `You are viewing from ${note.label}, which detects nothing itself.`;
   $('host-why').textContent = note.why;
 
   const tips = $('host-tips');
@@ -482,14 +496,20 @@ function renderCoverage() {
   }
 
   const host = cap.host || {};
-  const note = (cap.client_notes || {})[S.client] || {};
+  const note = noteFor(cap) || {};
   const where = $('cov-where');
   where.replaceChildren();
   where.append(document.createTextNode('Sensing happens on '));
   where.append(el('b', null, `${host.hostname} (${host.pretty} ${host.machine})`));
-  where.append(document.createTextNode(`. You are viewing from ${note.label || 'a browser'}, `));
-  where.append(el('b', null, 'which detects nothing itself'));
-  where.append(document.createTextNode('.'));
+  if (cap.client?.is_host) {
+    where.append(document.createTextNode(' — '));
+    where.append(el('b', null, 'the machine you are using'));
+    where.append(document.createTextNode('. This is what is near you.'));
+  } else {
+    where.append(document.createTextNode(`. You are viewing from ${note.label || 'a browser'}, `));
+    where.append(el('b', null, 'which detects nothing itself'));
+    where.append(document.createTextNode('.'));
+  }
 
   const pct = cap.total_count ? (cap.active_count / cap.total_count) * 100 : 0;
   $('cov-meter').style.width = pct.toFixed(0) + '%';

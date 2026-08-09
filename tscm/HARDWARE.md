@@ -116,6 +116,37 @@ not the computer.
 | **USB-C thermal camera** (iPhone 15 and later) | $200–300 | **Topdon TC002C** (256×192, 40 mK, iOS USB-C only) or an **InfiRay P2 Pro** in its iOS variant — check the listing, some P2 Pro SKUs are Android-only. Runs in the vendor's app, not in `sweep`. Finds warm devices behind plastic, including ones with no radio at all |
 | **RTL-SDR over the network** | $40 + a Pi | Run `rtl_tcp` on a Raspberry Pi and connect an iOS SDR client over Wi-Fi. The dongle is on the Pi, not the phone. Separate from `sweep`, same hardware |
 
+### "But why can't the phone just do the detecting?"
+
+Fair question, and it deserves a real answer rather than "iOS won't let you".
+Here is what a **native iOS app** could and could not do, API by API. This is
+about what Apple exposes to third-party code, not about the hardware — the
+radios in an iPhone are perfectly capable.
+
+| Capability | Native iOS app | Why |
+|---|---|---|
+| Scan BLE advertisements | ✅ **Yes** | CoreBluetooth gives third-party apps local name, advertised service UUIDs, service data, manufacturer data, TX power and RSSI. Most of `sweep`'s decoders would work on that. AirGuard's iOS app does exactly this. |
+| Read BLE **MAC addresses** | ❌ No | You get a per-app `NSUUID` instead. It differs between apps and changes when the peripheral rotates its address. |
+| Link a device across MAC rotation | ❌ No | Follows from the above. This is the core of `sweep`'s identity fusion — without it, one tracker following you for three hours is twelve unrelated strangers. |
+| Scan continuously in the background | ⚠️ Crippled | Background scanning requires you to name specific service UUIDs up front and returns reduced advertisement data. A sweep that only runs while you stare at the screen is not a sweep. |
+| Scan Wi-Fi | ❌ No | There is no public Wi-Fi scanning API. `NEHotspotHelper` needs a special Apple entitlement that is effectively unobtainable. This kills the most important band — Wi-Fi cameras. |
+| Wi-Fi monitor mode / raw 802.11 | ❌ No | Not exposed at any privilege level. |
+| Talk to a USB SDR | ❌ No | No `libusb` on iOS. An RTL-SDR or HackRF in the USB-C port is inert. The `USBDriverKit` port that made this work runs on **M-series iPads** only; iPhones are A-series. |
+| Sub-GHz, infrared, broadband RF | ❌ No | No hardware, and no way to attach any. |
+| Do any of this from **Safari** | ❌ No | WebKit has never shipped Web Bluetooth, and every browser on iOS is WebKit. The web UI cannot scan on iOS in any browser. |
+
+Net: a native iOS app could cover perhaps **40% of one band out of six**, with
+no stable identity and no background operation. That is a genuinely useful
+tracker-detector — which is why AirGuard exists — but it is not this tool, and no
+amount of work on my side changes any row in that table.
+
+**Android is a different story**, and worth saying so plainly. Android exposes
+BLE scanning *with real MAC addresses*, a Wi-Fi scanning API (throttled, and
+needing location permission), and USB host access with `libusb` — RTL-SDR apps
+run on Android today. An Android phone could be a genuine sensor node feeding
+the same engine. It is not built, but nothing in the platform forbids it, and
+that is the difference between the two.
+
 ### What does not work, whatever the shop says
 
 - **RTL-SDR or HackRF straight into an iPhone's USB-C port.** No `libusb` on
