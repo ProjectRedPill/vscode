@@ -144,6 +144,8 @@ def build_parser() -> argparse.ArgumentParser:
     )
     p_serve.add_argument("--duration", type=float, help="stop after N seconds")
     p_serve.add_argument("--open", action="store_true", help="open a browser")
+    p_serve.add_argument("--no-qr", action="store_true",
+                         help="do not print a QR code for the join URL")
 
     return parser
 
@@ -328,23 +330,7 @@ async def cmd_serve(args: argparse.Namespace, painter: Painter) -> int:
         return 2
 
     await engine.start()
-
-    print()
-    print(painter.c("  " + server.url, "green", bold=True))
-    if server.loopback:
-        print(painter.dim(
-            "  Local only. To read this on your phone, re-run with "
-            "--host 0.0.0.0 and use your machine's LAN address."
-        ))
-    else:
-        print(painter.c(
-            "  Bound to a network interface. The URL above carries an access "
-            "token — anyone on this network who has it can see your sweep.", "orange"))
-        print(painter.dim(
-            "  Traffic is plain HTTP, so treat it as readable by the network. "
-            "Use it on a network you trust."))
-    print(painter.dim("  ctrl-c to stop"))
-    print()
+    _print_serve_banner(server, statuses, painter, qr=not args.no_qr)
 
     if args.open:
         import webbrowser
@@ -466,52 +452,94 @@ def cmd_untrust(args: argparse.Namespace, painter: Painter) -> int:
 
 
 async def cmd_doctor(args: argparse.Namespace, painter: Painter) -> int:
+    """What can this machine detect, and what would change that.
+
+    Shares the capability catalogue with the web UI's Coverage tab and the
+    sweep report, so the three cannot give different answers.
+    """
+    from .core import capability
     from .intel import oui, sig
 
-    config = EngineConfig(sensors=list(ALL_SENSORS), db_path=args.db)
-    engine = Engine(config)
-    statuses = await engine.probe()
+    engine = Engine(EngineConfig(sensors=list(ALL_SENSORS), db_path=args.db))
+    await engine.probe()
+    report_data = capability.assess(engine.sensors)
     engine.store.close()
 
     if args.json:
-        print(json.dumps([s.__dict__ for s in statuses], indent=2, default=str))
+        print(json.dumps(report_data, indent=2, default=str))
         return 0
 
-    print(painter.c("sensors", "white", bold=True))
-    for s in statuses:
-        mark = painter.c("✔", "green") if s.available else painter.c("✘", "red")
-        print(f"  {mark} {s.name:<12} {s.band.value:<14} {s.reason}")
-        if not s.available and s.hint:
-            print(f"    {painter.dim('→ ' + s.hint)}")
+    host = report_data["host"]
+    print()
+    print(painter.c(
+        f"  Host: {host['hostname']} ({host['pretty']} {host['machine']})",
+        "white", bold=True))
+    print(painter.dim(
+        "  This machine's radios decide what can be detected. A phone or browser "
+        "viewing the UI contributes nothing."))
+    print()
+
+    for band in report_data["bands"]:
+        mark, colour = {
+            "active": ("●", "green"),
+            "unavailable": ("○", "orange"),
+            "off": ("○", "grey"),
+        }[band["status"]]
+        label = {"active": "sensing", "unavailable": "not available", "off": "off"}[band["status"]]
+        print(f"  {painter.c(mark, colour)} {painter.c(band['title'], 'white', bold=True)}"
+              f"  {painter.dim(label)}")
+        print(f"      {painter.dim(band['reason'])}")
+
+        if band["status"] == "active":
+            for item in band["detects"][:2]:
+                print(f"      {painter.dim('· ' + item)}")
+        else:
+            print(f"      {painter.c('blind to: ' + band['blind_without'], 'orange')}")
+            for upgrade in band["upgrades"]:
+                print("      " + painter.dim(
+                    f"→ {upgrade['action']}  ({upgrade['cost']})"))
+        print()
+
+    nxt = report_data["next_upgrade"]
+    if nxt:
+        print(painter.c("  Best next step", "white", bold=True))
+        print(f"    {painter.c(nxt['action'], 'green', bold=True)} "
+              f"{painter.dim('(' + nxt['cost'] + ')')} "
+              f"{painter.dim('— opens ' + str(nxt['bands_gained']) + ' more band(s)')}")
+        for line in _wrap_text(nxt["detail"], 74):
+            print(painter.dim("    " + line))
+        print()
 
     added = sig.load_external()
-    print()
-    print(painter.c("intelligence", "white", bold=True))
-    print(f"  OUI table         {oui.table_size():,} entries"
+    print(painter.c("  Intelligence", "white", bold=True))
+    print(f"    OUI table       {oui.table_size():,} entries"
           + (f" (+{added:,} from host files)" if added else " (bundled only)"))
-    print(f"  company IDs       {len(sig.COMPANY_IDS):,}")
-    print(f"  GATT services     {len(sig.SERVICE_UUIDS):,}")
     from .intel.signatures import SIGNATURES
-    print(f"  signatures        {len(SIGNATURES):,}")
     from .threat.rules import RULES
-    print(f"  threat rules      {len(RULES):,}")
+    print(f"    company IDs     {len(sig.COMPANY_IDS):,}   "
+          f"GATT services {len(sig.SERVICE_UUIDS):,}   "
+          f"signatures {len(SIGNATURES):,}   rules {len(RULES):,}")
+    print(f"    database        {args.db or default_path()}")
     print()
-    print(painter.c("storage", "white", bold=True))
-    print(f"  database          {args.db or default_path()}")
 
-    usable = [s for s in statuses if s.available]
-    print()
-    if not usable:
-        print(painter.c("Nothing is usable. Install bluez or NetworkManager to start.", "red"))
+    active = report_data["active_count"]
+    total = report_data["total_count"]
+    if not active:
+        print(painter.c(
+            "  Nothing is usable. Install bluez or NetworkManager to start.", "red"))
         return 2
-    print(painter.c(
-        f"{len(usable)} of {len(statuses)} sensors usable. "
-        f"Bands covered: {', '.join(sorted({s.band.value for s in usable}))}", "green"))
-    missing = sorted({s.band.value for s in statuses if not s.available}
-                     - {s.band.value for s in usable})
-    if missing:
-        print(painter.dim(f"Not covered: {', '.join(missing)} — see hints above."))
+    print(painter.c(f"  Sensing {active} of {total} bands.", "green", bold=True))
+    if report_data["blind_spots"]:
+        print(painter.dim("  Blind to: " + ", ".join(
+            b["title"] for b in report_data["blind_spots"])))
+    print()
     return 0
+
+
+def _wrap_text(text: str, width: int) -> list[str]:
+    import textwrap
+
+    return textwrap.wrap(text, width)
 
 
 def cmd_decode(args: argparse.Namespace, painter: Painter) -> int:
@@ -547,6 +575,63 @@ def cmd_sessions(args: argparse.Namespace, painter: Painter) -> int:
 
 
 # ---------------------------------------------------------------------------
+
+
+def _print_serve_banner(
+    server: Any, statuses: list[Any], painter: Painter, qr: bool = True
+) -> None:
+    """Everything you need to get the UI onto another device, in one screen."""
+    from .core import capability
+
+    print()
+    if server.loopback:
+        print("  " + painter.c(server.url, "green", bold=True))
+        print(painter.dim(
+            "  This machine only. To use it from your phone, stop and re-run with"))
+        print(painter.dim("      sweep serve --host 0.0.0.0"))
+    else:
+        addresses = capability.lan_addresses()
+        primary = None
+        for address in addresses:
+            url = f"http://{address}:{server.port}/"
+            if server.token:
+                url += f"?t={server.token}"
+            primary = primary or url
+            print("  " + painter.c(url, "green", bold=True))
+        if not addresses:
+            print("  " + painter.c(server.url, "green", bold=True))
+            print(painter.dim("  (could not determine a LAN address — check `ip addr`)"))
+
+        if qr and primary:
+            try:
+                from .core.qr import render
+
+                print()
+                print(painter.dim("  Scan this with your phone's camera:"))
+                print()
+                for line in render(primary, level="M", quiet=3,
+                                   color=painter.color).splitlines():
+                    print("   " + line)
+            except Exception:
+                # A QR failure must never stop the server from being usable.
+                pass
+
+        print()
+        print(painter.c(
+            "  Reachable from your network. That URL carries an access token, and "
+            "traffic is plain HTTP —", "orange"))
+        print(painter.c(
+            "  anyone on this network who sees it can read your sweep. Use a "
+            "network you trust.", "orange"))
+
+    active = {s.band.value for s in statuses if s.available}
+    total = len(capability.CATALOGUE)
+    print()
+    print(painter.dim(
+        f"  Sensing {len(active)} of {total} bands. "
+        "Open the Coverage tab in the UI to see what is missing and why."))
+    print(painter.dim("  ctrl-c to stop"))
+    print()
 
 
 def _print_probe(statuses: list[Any], painter: Painter) -> None:

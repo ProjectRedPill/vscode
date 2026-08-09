@@ -45,6 +45,28 @@
 
   <!-- ══ device list ═════════════════════════════════════════════════ -->
   <main class="main" id="view-list">
+    <!-- Where the radios are versus where you are looking. Shown once,
+         dismissible, because it is the single most misunderstood thing here. -->
+    <div class="hostcard" id="hostcard" hidden>
+      <div class="hostcard-row">
+        <span class="hostcard-icon" id="host-icon" aria-hidden="true">📱</span>
+        <div class="hostcard-text">
+          <strong id="host-headline">—</strong>
+          <p id="host-summary"></p>
+        </div>
+        <button class="icon-btn" id="host-dismiss" type="button" aria-label="Dismiss">✕</button>
+      </div>
+      <button class="hostcard-toggle" id="host-toggle" type="button"
+              aria-expanded="false" aria-controls="host-more">
+        <span id="host-toggle-label">Why, and what my device can do</span>
+        <span class="chev" aria-hidden="true">▾</span>
+      </button>
+      <div class="hostcard-more" id="host-more" hidden>
+        <p id="host-why"></p>
+        <ul class="hostcard-tips" id="host-tips"></ul>
+      </div>
+    </div>
+
     <div class="filters" role="tablist" aria-label="Filter devices">
       <button class="chip is-on" data-filter="all"      role="tab" type="button">All</button>
       <button class="chip"       data-filter="alerts"   role="tab" type="button">Alerts</button>
@@ -111,6 +133,32 @@
     </div>
   </section>
 
+  <!-- ══ coverage view ═══════════════════════════════════════════════ -->
+  <section class="cov" id="view-coverage" hidden aria-label="Coverage">
+    <div class="cov-head">
+      <h2>What can be detected</h2>
+      <div class="cov-where" id="cov-where"></div>
+      <div class="cov-score">
+        <div class="cov-meter"><div class="cov-meter-fill" id="cov-meter"></div></div>
+        <span id="cov-score-text">—</span>
+      </div>
+    </div>
+
+    <div class="cov-next" id="cov-next" hidden>
+      <span class="cov-next-tag">Best next step</span>
+      <strong id="cov-next-action">—</strong>
+      <span class="cov-next-cost" id="cov-next-cost"></span>
+      <p id="cov-next-detail"></p>
+    </div>
+
+    <div class="cov-bands" id="cov-bands"></div>
+
+    <p class="disclaimer">
+      Bands you are not sensing are not "clear" — they are unknown. Everything
+      above describes what this host's radios can reach, not what is in the room.
+    </p>
+  </section>
+
   <!-- ══ detail sheet ════════════════════════════════════════════════ -->
   <aside class="sheet" id="sheet" hidden aria-label="Device detail">
     <div class="sheet-grab" aria-hidden="true"></div>
@@ -140,6 +188,10 @@
     <button class="dock-btn" id="btn-baseline" type="button">
       <span class="dock-glyph" aria-hidden="true">◍</span>
       <span class="dock-label">Baseline</span>
+    </button>
+    <button class="dock-btn" id="btn-coverage" type="button">
+      <span class="dock-glyph" aria-hidden="true">◎</span>
+      <span class="dock-label">Coverage</span>
     </button>
     <a class="dock-btn" id="btn-report" href="/api/report" download>
       <span class="dock-glyph" aria-hidden="true">↓</span>

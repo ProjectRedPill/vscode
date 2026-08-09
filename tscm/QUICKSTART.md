@@ -1,0 +1,127 @@
+# Quickstart
+
+## 1. Install
+
+```bash
+cd tscm
+pip install -e '.[all]'
+```
+
+`.[all]` pulls in `bleak` (much better Bluetooth) and `pyserial` (for the
+probes). The core works without either — `pip install -e .` is enough if you
+want zero dependencies.
+
+## 2. See what your machine can detect
+
+```bash
+sweep doctor
+```
+
+Run this first, every time, on any new machine. It prints every band, whether
+you can sense it, what you are blind to without it, and the exact command or
+purchase that would fix it. It ends with the single best next step.
+
+Nothing else in this tool means much until you have read that output — "no
+findings" from a sweep that could only hear Bluetooth is not the same claim as
+"no findings" from one that could hear everything.
+
+## 3. Launch it
+
+### Just on this machine
+
+```bash
+sweep serve --open
+```
+
+Opens `http://localhost:8787/` in your browser.
+
+### On your phone (the useful way)
+
+```bash
+sweep serve --host 0.0.0.0
+```
+
+It prints your LAN URL **and a QR code**. Point your phone's camera at the
+terminal, tap the notification, done — no typing the access token by hand.
+
+```
+  http://192.168.1.42:8787/?t=3K4KK6kYAlWVndD3B7u7FA
+
+  Scan this with your phone's camera:
+
+    ▄▄▄▄▄▄▄  ▄ ▄▄▄  ▄▄▄▄▄▄▄
+    █ ▄▄▄ █ ▀█▄ ▄▀▀ █ ▄▄▄ █
+    █ ███ █ █▄ ▀█▄█ █ ███ █
+    ...
+```
+
+On iPhone, once it loads: **Share ▸ Add to Home Screen**. You get a full-screen
+app with no browser bars, and it reconnects by itself when the phone wakes.
+
+> `--host 0.0.0.0` puts your device inventory on the network over plain HTTP.
+> The token in the URL is the only thing protecting it. Use a network you trust.
+
+### With every sensor, including add-on hardware
+
+```bash
+sweep serve --host 0.0.0.0 --sensors all \
+    --ir-port /dev/ttyUSB0 \
+    --rf-port /dev/ttyUSB1
+```
+
+### Prefer the terminal?
+
+```bash
+sweep scan                                # live dashboard
+sweep find "AirTag"                       # ranging view for one device
+sweep sweep --duration 300 --out room.md  # timed sweep, writes a report
+```
+
+## 4. Use it
+
+1. **Mark your locations.** Press `m` (or tap **Mark location**) every time you
+   physically move. This is not optional decoration — the follow-detection rules
+   ask *"has this been present across several locations?"*, and without location
+   marks they cannot fire at all. A tracker in your bag and a tracker on your
+   neighbour's shelf look identical from one spot.
+
+2. **Tag your own devices.** Open a device, tap **Mine**. It stays tracked but
+   stops shouting, so real alerts are not buried under your own headphones.
+
+3. **Check the Coverage tab.** It shows what you are sensing, what you are blind
+   to, and what each upgrade would unlock. It also states plainly that the phone
+   you are holding detects nothing — the radios are on the host machine.
+
+4. **Use the finder.** Tap a device, then **Find it**. Walk a few metres, stand
+   still for about ten seconds, read the arrow. Trust the trend, not any single
+   reading.
+
+## Where things run
+
+```
+    HOST                                  CLIENT
+    the machine running `sweep`           whatever you view the UI on
+    laptop, or a Raspberry Pi             iPhone, Android, laptop browser
+
+    ✅ all the radios                     ❌ contributes nothing to detection
+    ✅ all detection                      ✅ full control of the sweep
+```
+
+This split is a platform constraint, not a design shortcut. iOS gives apps no
+`libusb` (so an SDR in the USB-C port is inert), no raw Bluetooth HCI, no Wi-Fi
+monitor mode, and rotating per-app UUIDs instead of BLE MAC addresses. Your
+phone cannot be the sensor. It makes an excellent screen.
+
+See [HARDWARE.md](HARDWARE.md) for what to plug into the host.
+
+## Troubleshooting
+
+| Symptom | Cause and fix |
+|---|---|
+| `sweep doctor` says nothing is usable | No Bluetooth or Wi-Fi tooling. Linux: `apt install bluez network-manager`. Then `pip install bleak`. |
+| Phone cannot reach the URL | You are on loopback. Re-run with `--host 0.0.0.0`, and check both devices are on the same network (phone Wi-Fi off / cellular on is the usual cause). |
+| `cannot bind 0.0.0.0:8787` | Something else has the port. Add `--port 9000`. |
+| The QR code will not scan | Widen the terminal, or increase the font size. `--no-qr` prints just the URL. |
+| Everything reads `<1 m` | Expected. Distance is a path-loss estimate, routinely wrong by 2× indoors. Use the finder's warmer/colder, not the metres. |
+| BLE devices have no names or vendors | You are on the `bluetoothctl` fallback. `pip install bleak` for full advertisement payloads. |
+| Nothing found and you expected something | Read the Coverage tab. A quiet sweep on two bands is not a quiet room. |

@@ -216,6 +216,19 @@ class WebServer:
         if method == "GET" and path == "/api/state":
             return 200, self._state_bytes(), "application/json", extra
 
+        if method == "GET" and path == "/api/capability":
+            from ..core import capability
+
+            payload = capability.assess(self.engine.sensors)
+            # The client needs to know it is not the host — that distinction is
+            # the whole point of the Coverage screen.
+            payload["server"] = {
+                "loopback": self.loopback,
+                "host_header_ok": True,
+                "url": self.url,
+            }
+            return 200, _json(payload), "application/json", extra
+
         if method == "GET" and path.startswith("/api/device/"):
             needle = path[len("/api/device/"):]
             device = self.engine.fusion.get(needle)

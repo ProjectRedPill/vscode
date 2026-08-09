@@ -308,8 +308,11 @@ button, a, .row, .chip { touch-action: manipulation; -webkit-tap-highlight-color
 
 .dock {
   display: grid;
-  grid-template-columns: 1.4fr 1fr 1fr;
-  gap: 8px;
+  /* One column per button. An `auto-fit`/fixed-count mismatch here silently
+     wraps the last action onto a second row and eats a chunk of the phone
+     screen, so the count is explicit. */
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 6px;
   background: var(--bg-raise);
   border-top: 1px solid var(--line);
   padding: 8px max(12px, env(safe-area-inset-left))
@@ -328,7 +331,13 @@ button, a, .row, .chip { touch-action: manipulation; -webkit-tap-highlight-color
 .dock-btn:active { transform: scale(.97); }
 .dock-primary { background: var(--accent); color: #04120f; border-color: transparent; font-weight: 700; }
 .dock-glyph { font-size: 15px; line-height: 1; }
-.dock-label { font-size: 11px; font-weight: 650; letter-spacing: .01em; }
+.dock-label {
+  font-size: 10.5px; font-weight: 650; letter-spacing: -.01em;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  max-width: 100%; padding: 0 2px;
+}
+/* Four labels do not fit across the narrowest phones; the glyphs carry it. */
+@media (max-width: 359px) { .dock-label { display: none; } }
 
 /* ── find view ──────────────────────────────────────────────────────── */
 
@@ -532,3 +541,141 @@ button, a, .row, .chip { touch-action: manipulation; -webkit-tap-highlight-color
   .find-dbm { font-size: clamp(54px, 14vh, 92px); }
   .dock-label { display: none; }
 }
+
+/* ── host awareness card ────────────────────────────────────────────── */
+
+.hostcard {
+  margin: 12px 0 4px;
+  background: var(--bg-raise);
+  border: 1px solid color-mix(in srgb, var(--info) 32%, var(--line));
+  border-radius: var(--r-md);
+  padding: 12px 12px 10px;
+}
+.hostcard-row { display: flex; gap: 11px; align-items: flex-start; }
+.hostcard-icon { font-size: 20px; line-height: 1.2; flex: none; }
+.hostcard-text { flex: 1; min-width: 0; }
+.hostcard-text strong { display: block; font-size: 14px; }
+.hostcard-text p { margin: 4px 0 0; font-size: 12.5px; color: var(--fg-dim); line-height: 1.5; }
+/* Small glyph, full-size hit area. Negative margins keep the 44px target from
+   inflating the card — shrinking the button itself would have been the easy
+   way and would have put it under Apple's minimum. */
+.hostcard .icon-btn { font-size: 13px; margin: -10px -10px 0 0; }
+
+/* Collapsed by default: the explanation matters, but not more than the device
+   list it would otherwise push off the first screen. */
+.hostcard-toggle {
+  display: flex; align-items: center; justify-content: space-between;
+  width: 100%; min-height: var(--tap); margin-top: 2px;
+  font-size: 12.5px; font-weight: 620; color: var(--info);
+}
+.hostcard-toggle .chev { transition: transform .18s ease; font-size: 11px; }
+.hostcard.open .hostcard-toggle .chev { transform: rotate(180deg); }
+.hostcard-more p { margin: 2px 0 0; font-size: 12.5px; color: var(--fg-dim); line-height: 1.5; }
+
+.hostcard-tips { list-style: none; margin: 10px 0 0; padding: 0; display: grid; gap: 7px; }
+.hostcard-tips li {
+  font-size: 12.5px; color: var(--fg-dim); line-height: 1.5;
+  padding-left: 18px; position: relative;
+}
+.hostcard-tips li::before {
+  content: "→"; position: absolute; left: 0; color: var(--info); font-weight: 700;
+}
+
+/* ── coverage view ──────────────────────────────────────────────────── */
+
+.cov {
+  grid-row: 2;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+  overscroll-behavior: contain;
+  padding: 0 max(12px, env(safe-area-inset-left)) 18px max(12px, env(safe-area-inset-right));
+}
+
+.cov-head { padding: 14px 0 6px; }
+.cov-head h2 { margin: 0; font-size: 19px; font-weight: 700; letter-spacing: -.01em; }
+.cov-where { font-size: 12.5px; color: var(--fg-dim); margin-top: 5px; line-height: 1.5; }
+.cov-where b { color: var(--fg); }
+
+.cov-score { display: flex; align-items: center; gap: 11px; margin-top: 12px; }
+.cov-meter {
+  flex: 1; height: 8px; border-radius: 999px;
+  background: var(--bg-sunk); border: 1px solid var(--line-soft); overflow: hidden;
+}
+.cov-meter-fill {
+  height: 100%; width: 0; border-radius: 999px;
+  background: linear-gradient(90deg, var(--warn), var(--ok));
+  transition: width .5s cubic-bezier(.4,0,.2,1);
+}
+#cov-score-text { font-size: 12px; color: var(--fg-dim); font-variant-numeric: tabular-nums; white-space: nowrap; }
+
+.cov-next {
+  margin: 14px 0 4px; padding: 12px;
+  border-radius: var(--r-md);
+  background: color-mix(in srgb, var(--accent) 12%, var(--bg-raise));
+  border: 1px solid color-mix(in srgb, var(--accent) 40%, transparent);
+}
+.cov-next-tag {
+  display: block; font-size: 9.5px; font-weight: 800; letter-spacing: .09em;
+  text-transform: uppercase; color: var(--accent); margin-bottom: 5px;
+}
+.cov-next strong { font-size: 15px; }
+.cov-next-cost { font-size: 12px; color: var(--fg-dim); margin-left: 7px; }
+.cov-next p { margin: 7px 0 0; font-size: 12.5px; color: var(--fg-dim); line-height: 1.5; }
+
+.cov-bands { display: grid; gap: 9px; margin-top: 14px; }
+
+.cov-band {
+  background: var(--bg-raise);
+  border: 1px solid var(--line-soft);
+  border-left: 3px solid var(--fg-faint);
+  border-radius: var(--r-md);
+  padding: 12px 13px;
+}
+.cov-band.on   { border-left-color: var(--ok); }
+.cov-band.miss { border-left-color: var(--warn); }
+.cov-band.off  { border-left-color: var(--line); opacity: .82; }
+
+.cov-band-head { display: flex; align-items: baseline; gap: 9px; flex-wrap: wrap; }
+.cov-band-head h3 { margin: 0; font-size: 14.5px; font-weight: 650; }
+.cov-state {
+  font-size: 9.5px; font-weight: 800; letter-spacing: .07em; text-transform: uppercase;
+  padding: 2px 7px; border-radius: 5px;
+}
+.cov-band.on   .cov-state { background: color-mix(in srgb, var(--ok) 18%, transparent);   color: var(--ok); }
+.cov-band.miss .cov-state { background: color-mix(in srgb, var(--warn) 18%, transparent); color: var(--warn); }
+.cov-band.off  .cov-state { background: var(--bg-sunk); color: var(--fg-faint); }
+
+.cov-reason { font-size: 12px; color: var(--fg-faint); margin: 5px 0 0; font-family: var(--mono); word-break: break-word; }
+
+.cov-list { list-style: none; margin: 9px 0 0; padding: 0; display: grid; gap: 5px; }
+.cov-list li { font-size: 12.5px; color: var(--fg-dim); line-height: 1.45; padding-left: 16px; position: relative; }
+.cov-list li::before { content: "·"; position: absolute; left: 4px; color: var(--ok); font-weight: 700; }
+.cov-band.miss .cov-list li::before { content: "×"; color: var(--warn); font-size: 11px; }
+
+.cov-blind {
+  margin: 9px 0 0; font-size: 12.5px; line-height: 1.5;
+  color: var(--warn);
+}
+
+.cov-upgrades { margin-top: 10px; display: grid; gap: 7px; }
+.cov-upgrade {
+  display: grid; grid-template-columns: 1fr auto; gap: 4px 10px;
+  background: var(--bg-sunk); border: 1px solid var(--line-soft);
+  border-radius: var(--r-sm); padding: 9px 10px;
+}
+.cov-upgrade b { font-size: 12.5px; font-weight: 650; }
+.cov-upgrade .cost { font-size: 11.5px; color: var(--fg-dim); font-variant-numeric: tabular-nums; white-space: nowrap; }
+.cov-upgrade .cmd {
+  grid-column: 1 / -1; font-family: var(--mono); font-size: 11.5px;
+  color: var(--accent); word-break: break-word;
+}
+.cov-upgrade .why { grid-column: 1 / -1; font-size: 11.5px; color: var(--fg-faint); line-height: 1.45; }
+
+@media (min-width: 860px) {
+  .cov { grid-column: 1; padding: 0 22px 22px; }
+  .cov-bands { grid-template-columns: repeat(auto-fill, minmax(360px, 1fr)); }
+  .dock { grid-template-columns: repeat(4, minmax(0, 150px)); }
+}
+
+/* Coverage is a toggle, so the dock button reflects which view you are in. */
+.dock-btn.is-on { background: var(--fg); color: var(--bg); border-color: var(--fg); }

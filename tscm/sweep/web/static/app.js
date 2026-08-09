@@ -21,7 +21,23 @@ const S = {
   view: 'list',       // 'list' | 'find'
   source: null,
   connected: false,
+  capability: null,
+  client: null,       // 'ios' | 'android' | 'desktop'
 };
+
+/* Which kind of device is *viewing* the dashboard.
+   This never changes what is detected -- the host's radios do that -- but it
+   changes what advice is worth showing, and it lets the UI say plainly that
+   the phone in your hand is a screen and not a sensor. */
+function detectClient() {
+  const ua = navigator.userAgent || '';
+  const touch = navigator.maxTouchPoints || 0;
+  // iPadOS 13+ reports itself as a Mac; the touch-point count is the giveaway.
+  const iPadOS = /Macintosh/.test(ua) && touch > 1;
+  if (/iPhone|iPad|iPod/.test(ua) || iPadOS) return 'ios';
+  if (/Android/.test(ua)) return 'android';
+  return 'desktop';
+}
 
 const $  = (id) => document.getElementById(id);
 const el = (tag, cls, text) => {
@@ -69,6 +85,15 @@ async function post(body) {
   }
 }
 
+async function loadCapability() {
+  try {
+    const res = await fetch(withToken('/api/capability'));
+    S.capability = await res.json();
+    renderHostCard();
+    if (S.view === 'coverage') renderCoverage();
+  } catch { /* the stream will still work; Coverage just stays empty */ }
+}
+
 function connect() {
   if (S.source) S.source.close();
   const source = new EventSource(withToken('/api/events'));
@@ -103,8 +128,18 @@ function render() {
   if (!S.state) return;
   renderHeader();
   if (S.view === 'find') renderFind();
+  else if (S.view === 'coverage') renderCoverage();
   else renderList();
   if (S.openId) renderSheet();
+}
+
+function showView(view) {
+  S.view = view;
+  $('view-list').hidden     = view !== 'list';
+  $('view-find').hidden     = view !== 'find';
+  $('view-coverage').hidden = view !== 'coverage';
+  $('btn-coverage').classList.toggle('is-on', view === 'coverage');
+  render();
 }
 
 function renderHeader() {
@@ -150,9 +185,6 @@ function visibleDevices() {
 }
 
 function renderList() {
-  $('view-list').hidden = false;
-  $('view-find').hidden = true;
-
   const devices = visibleDevices();
   const list = $('devices');
   list.replaceChildren();
@@ -337,21 +369,16 @@ function kv(map) {
 async function startFind(id) {
   const res = await post({ action: 'target', device: id });
   if (!res?.ok) { toast('Could not start ranging on that device.'); return; }
-  S.view = 'find';
   closeSheet();
-  render();
+  showView('find');
 }
 
 async function stopFind() {
   await post({ action: 'target', device: null });
-  S.view = 'list';
-  render();
+  showView('list');
 }
 
 function renderFind() {
-  $('view-list').hidden = true;
-  $('view-find').hidden = false;
-
   const r = S.state.range || {};
   if (!r.active) { $('find-name').textContent = 'No target'; return; }
 
@@ -413,6 +440,113 @@ function drawSpark(history) {
   svg.append(line);
 }
 
+// ── host awareness ───────────────────────────────────────────────────
+
+const CLIENT_ICON = { ios: '\u{1F4F1}', android: '\u{1F4F1}', desktop: '\u{1F5A5}\uFE0F' };
+
+function renderHostCard() {
+  const cap = S.capability;
+  const card = $('hostcard');
+  if (!cap) { card.hidden = true; return; }
+
+  let dismissed = false;
+  try { dismissed = localStorage.getItem('sweep-hostcard') === 'dismissed'; } catch {}
+  if (dismissed) { card.hidden = true; return; }
+
+  const note = (cap.client_notes || {})[S.client] || cap.client_notes?.desktop;
+  if (!note) { card.hidden = true; return; }
+
+  const host = cap.host || {};
+  $('host-icon').textContent = CLIENT_ICON[S.client] || '\u{1F5A5}\uFE0F';
+  $('host-headline').textContent = note.headline;
+  $('host-summary').textContent =
+    `Radios on ${host.hostname} (${host.pretty}). ` +
+    `You are viewing from ${note.label}, which detects nothing itself.`;
+  $('host-why').textContent = note.why;
+
+  const tips = $('host-tips');
+  tips.replaceChildren();
+  for (const tip of note.tips || []) tips.append(el('li', null, tip));
+  $('host-toggle').hidden = !note.why && !(note.tips || []).length;
+  card.hidden = false;
+}
+
+// ── coverage view ────────────────────────────────────────────────────
+
+function renderCoverage() {
+  const cap = S.capability;
+  const wrap = $('cov-bands');
+  if (!cap) {
+    wrap.replaceChildren(el('p', 'cov-reason', 'Loading capability data…'));
+    return;
+  }
+
+  const host = cap.host || {};
+  const note = (cap.client_notes || {})[S.client] || {};
+  const where = $('cov-where');
+  where.replaceChildren();
+  where.append(document.createTextNode('Sensing happens on '));
+  where.append(el('b', null, `${host.hostname} (${host.pretty} ${host.machine})`));
+  where.append(document.createTextNode(`. You are viewing from ${note.label || 'a browser'}, `));
+  where.append(el('b', null, 'which detects nothing itself'));
+  where.append(document.createTextNode('.'));
+
+  const pct = cap.total_count ? (cap.active_count / cap.total_count) * 100 : 0;
+  $('cov-meter').style.width = pct.toFixed(0) + '%';
+  $('cov-score-text').textContent = `${cap.active_count} of ${cap.total_count} bands`;
+
+  const next = cap.next_upgrade;
+  $('cov-next').hidden = !next;
+  if (next) {
+    $('cov-next-action').textContent = next.action;
+    $('cov-next-cost').textContent = next.cost;
+    $('cov-next-detail').textContent =
+      `${next.detail} Opens ${next.bands_gained} more band${next.bands_gained === 1 ? '' : 's'}.`;
+  }
+
+  wrap.replaceChildren();
+  for (const band of cap.bands || []) wrap.append(coverageCard(band));
+}
+
+const COV_STATE = {
+  active:      { cls: 'on',   label: 'sensing' },
+  unavailable: { cls: 'miss', label: 'not available' },
+  off:         { cls: 'off',  label: 'switched off' },
+};
+
+function coverageCard(band) {
+  const meta = COV_STATE[band.status] || COV_STATE.off;
+  const box = el('div', `cov-band ${meta.cls}`);
+
+  const head = el('div', 'cov-band-head');
+  head.append(el('h3', null, band.title));
+  head.append(el('span', 'cov-state', meta.label));
+  box.append(head);
+
+  if (band.reason) box.append(el('p', 'cov-reason', band.reason));
+
+  const list = el('ul', 'cov-list');
+  for (const item of band.detects) list.append(el('li', null, item));
+  box.append(list);
+
+  if (band.status !== 'active') {
+    box.append(el('p', 'cov-blind', `Without this you are blind to ${band.blind_without}.`));
+    if (band.upgrades?.length) {
+      const ups = el('div', 'cov-upgrades');
+      for (const u of band.upgrades) {
+        const row = el('div', 'cov-upgrade');
+        row.append(el('b', null, u.name));
+        row.append(el('span', 'cost', u.cost));
+        row.append(el('span', 'cmd', u.action));
+        row.append(el('span', 'why', u.detail));
+        ups.append(row);
+      }
+      box.append(ups);
+    }
+  }
+  return box;
+}
+
 // ── toast ────────────────────────────────────────────────────────────
 
 let toastTimer = null;
@@ -434,6 +568,9 @@ function applyTheme(mode) {
 // ── wiring ───────────────────────────────────────────────────────────
 
 function init() {
+  S.client = detectClient();
+  document.documentElement.setAttribute('data-client', S.client);
+
   try {
     const saved = localStorage.getItem('sweep-theme');
     if (saved) document.documentElement.setAttribute('data-theme', saved);
@@ -472,6 +609,24 @@ function init() {
     $('btn-report').href = withToken('/api/report');
   });
 
+  $('btn-coverage').addEventListener('click', () => {
+    showView(S.view === 'coverage' ? 'list' : 'coverage');
+  });
+
+  $('host-toggle').addEventListener('click', () => {
+    const card = $('hostcard');
+    const open = card.classList.toggle('open');
+    $('host-more').hidden = !open;
+    $('host-toggle').setAttribute('aria-expanded', String(open));
+    $('host-toggle-label').textContent = open
+      ? 'Hide' : 'Why, and what my device can do';
+  });
+
+  $('host-dismiss').addEventListener('click', () => {
+    $('hostcard').hidden = true;
+    try { localStorage.setItem('sweep-hostcard', 'dismissed'); } catch {}
+  });
+
   $('d-close').addEventListener('click', closeSheet);
   $('scrim').addEventListener('click', closeSheet);
   $('d-find').addEventListener('click', () => S.openId && startFind(S.openId));
@@ -487,7 +642,12 @@ function init() {
 
   document.addEventListener('keydown', (ev) => {
     if (ev.target.tagName === 'INPUT') return;
-    if (ev.key === 'Escape') { S.view === 'find' ? stopFind() : closeSheet(); }
+    if (ev.key === 'Escape') {
+      if (S.view === 'find') stopFind();
+      else if (S.view === 'coverage') showView('list');
+      else closeSheet();
+    }
+    if (ev.key === 'c') $('btn-coverage').click();
     if (ev.key === 'm') $('btn-epoch').click();
     if (ev.key === 'b') $('btn-baseline').click();
     if (ev.key === 'f' && S.openId) startFind(S.openId);
@@ -500,6 +660,10 @@ function init() {
   });
 
   connect();
+  loadCapability();
+  // Sensors can become available mid-run (a probe plugged in, a service
+  // started), so the picture is refreshed rather than fetched once.
+  setInterval(loadCapability, 20000);
 }
 
 if (document.readyState === 'loading') {

@@ -10,9 +10,9 @@ itself. Then it helps you physically find the ones you care about.
 **Receive-only.** It never connects, pairs, transmits, deauthenticates or jams.
 Everything it reports comes from what devices already broadcast in the clear.
 
-See [RESEARCH.md](RESEARCH.md) for the survey of the ten projects this draws
-from and what was taken from each, and [HARDWARE.md](HARDWARE.md) for what to
-plug in — including the honest answer about what an iPhone can and cannot do.
+**[QUICKSTART.md](QUICKSTART.md)** — install, launch, and get it onto your phone.
+[HARDWARE.md](HARDWARE.md) — what to plug in, and what an iPhone can and cannot
+do. [RESEARCH.md](RESEARCH.md) — the survey of the ten projects this draws from.
 
 ---
 
@@ -57,6 +57,10 @@ sweep serve --open                        # this machine only
 sweep serve --sensors all --host 0.0.0.0  # reachable from your phone
 ```
 
+Binding to the network prints your LAN URL **and a QR code** you can point a
+phone camera at, so the access token never has to be typed by hand. The QR
+encoder is built in — no dependency, and it works with no internet.
+
 Three views: a device list sorted by risk, a detail panel with every decoded
 fact, and a full-screen **finder** — one large number that rises as you get
 closer, with warmer/colder and a signal trace.
@@ -70,6 +74,11 @@ Pi, because that is the only arrangement iOS allows (see
   works with no internet at all.
 - Live updates over Server-Sent Events; reconnects by itself when a phone wakes.
 - Dark and light, following the system theme with a manual override.
+- Knows whether you are viewing from an iPhone, an Android or a desktop, and
+  says plainly that the device in your hand is a screen rather than a sensor —
+  with the iOS-specific things it *can* usefully do.
+- A **Coverage** tab showing every band: what it detects, what you are blind to
+  without it, and the exact command or purchase that would switch it on.
 - Verified in Chromium at desktop and iPhone viewports by the tests in
   `tests/test_web_ui.py`.
 
@@ -271,7 +280,7 @@ pip install -e '.[dev]'
 python -m pytest tests/ -q
 ```
 
-98 tests, no radio hardware required. The decoding layer (`intel/`) is pure
+127 tests, no radio hardware required. The decoding layer (`intel/`) is pure
 functions over bytes and is fully covered; `tests/test_engine.py` drives the
 real engine end to end through a scripted fake sensor; `tests/test_web.py`
 exercises the HTTP and SSE surface over real TCP; `tests/test_web_ui.py` drives
@@ -298,6 +307,9 @@ sweep/
   threat/    rules (location epochs, follow detection, camera/IR/RF rules)
   ui/        tui (list · detail · find) · render · report
   web/       server (HTTP + SSE) · static/ (index.html · app.css · app.js)
+  core/capability.py   one catalogue of bands, blind spots and upgrades,
+                       shared by `doctor`, the report and the Coverage tab
+  core/qr.py           dependency-free QR encoder for the phone join URL
 firmware/    ir_probe · rf_probe   (reference Arduino/ESP32 sketches)
 ```
 

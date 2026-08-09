@@ -245,3 +245,101 @@ async def test_live_updates_arrive_over_sse(ui):
         assert await page.locator(".row", has_text="Late Arrival").count() == 1
     finally:
         await ctx.close()
+
+
+# ---------------------------------------------------------------------------
+# Coverage view and client awareness
+# ---------------------------------------------------------------------------
+
+async def test_iphone_is_told_it_is_a_screen_not_a_sensor(ui):
+    """The single most misunderstood thing about this tool, so it is asserted."""
+    _, browser, url = ui
+    ctx, page, problems = await _open(browser, url, **IPHONE)
+    try:
+        assert await page.locator("#hostcard").is_visible()
+        headline = await page.locator("#host-headline").text_content()
+        assert "screen" in headline.lower()
+        summary = await page.locator("#host-summary").text_content()
+        assert "detects nothing itself" in summary
+
+        # The detail is collapsed so it cannot push the device list off-screen.
+        assert not await page.locator("#host-more").is_visible()
+        await page.locator("#host-toggle").click()
+        await page.wait_for_timeout(300)
+        assert await page.locator("#host-more").is_visible()
+
+        why = await page.locator("#host-why").text_content()
+        assert "libusb" in why
+        tips = await page.locator("#host-tips li").all_text_contents()
+        assert any("Home Screen" in t for t in tips)
+        assert any("front camera" in t.lower() for t in tips)
+        assert problems == []
+    finally:
+        await ctx.close()
+
+
+async def test_desktop_gets_desktop_wording_not_phone_wording(ui):
+    _, browser, url = ui
+    ctx, page, _ = await _open(browser, url, **DESKTOP)
+    try:
+        headline = await page.locator("#host-headline").text_content()
+        assert "browser" in headline.lower()
+    finally:
+        await ctx.close()
+
+
+async def test_coverage_lists_every_band_with_upgrades(ui):
+    _, browser, url = ui
+    ctx, page, problems = await _open(browser, url, **IPHONE)
+    try:
+        await page.locator("#btn-coverage").click()
+        await page.wait_for_timeout(800)
+        assert await page.locator("#view-coverage").is_visible()
+        assert not await page.locator("#view-list").is_visible()
+
+        from sweep.core import capability
+        assert await page.locator(".cov-band").count() == len(capability.CATALOGUE)
+
+        where = await page.locator("#cov-where").text_content()
+        assert "detects nothing itself" in where
+
+        # No sensors are available in the test engine, so every band should
+        # offer a concrete way forward rather than just saying "unavailable".
+        assert await page.locator(".cov-upgrade .cmd").count() > 0
+        commands = await page.locator(".cov-upgrade .cmd").all_text_contents()
+        assert any("pip install" in c or "apt install" in c or "buy" in c
+                   for c in commands)
+        assert problems == []
+    finally:
+        await ctx.close()
+
+
+async def test_coverage_toggles_back_to_the_list(ui):
+    _, browser, url = ui
+    ctx, page, _ = await _open(browser, url, **DESKTOP)
+    try:
+        await page.locator("#btn-coverage").click()
+        await page.wait_for_timeout(500)
+        assert await page.locator("#view-coverage").is_visible()
+        await page.locator("#btn-coverage").click()
+        await page.wait_for_timeout(500)
+        assert await page.locator("#view-list").is_visible()
+        assert not await page.locator("#view-coverage").is_visible()
+    finally:
+        await ctx.close()
+
+
+async def test_dock_stays_on_one_row_on_a_phone(ui):
+    """Four actions in a three-column grid silently wrapped and ate the screen."""
+    _, browser, url = ui
+    ctx, page, _ = await _open(browser, url, **IPHONE)
+    try:
+        rows = await page.evaluate("""() => {
+            const tops = new Set();
+            for (const b of document.querySelectorAll('.dock > *'))
+                tops.add(Math.round(b.getBoundingClientRect().top));
+            return tops.size;
+        }""")
+        assert rows == 1, f"dock wrapped onto {rows} rows"
+    finally:
+        await ctx.close()
