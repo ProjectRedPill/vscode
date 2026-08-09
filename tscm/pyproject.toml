@@ -34,6 +34,12 @@ sweep = "sweep.cli:main"
 [tool.setuptools.packages.find]
 include = ["sweep*"]
 
+# The web UI is served from disk at runtime, so the assets have to travel with
+# the wheel — without this they are silently missing from an installed copy and
+# `sweep serve` returns "not found" for every page.
+[tool.setuptools.package-data]
+sweep = ["web/static/*"]
+
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 asyncio_mode = "auto"

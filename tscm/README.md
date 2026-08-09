@@ -11,7 +11,8 @@ itself. Then it helps you physically find the ones you care about.
 Everything it reports comes from what devices already broadcast in the clear.
 
 See [RESEARCH.md](RESEARCH.md) for the survey of the ten projects this draws
-from and what was taken from each.
+from and what was taken from each, and [HARDWARE.md](HARDWARE.md) for what to
+plug in — including the honest answer about what an iPhone can and cannot do.
 
 ---
 
@@ -41,14 +42,42 @@ sweep.
 ## Use
 
 ```bash
-sweep scan                                # live dashboard, everything available
+sweep serve                               # web UI (recommended) — Chrome, Safari, phone
+sweep scan                                # terminal dashboard
 sweep scan --sensors all                  # include SDR / IR / RF probes
 sweep find "AirTag"                       # walk-around ranging on one device
 sweep sweep --duration 300 --out room.md  # timed sweep, writes a full report
 sweep decode 0201061eff4c001219...        # decode a captured advert, no hardware
 ```
 
-### Keys in the live view
+## The web UI
+
+```bash
+sweep serve --open                        # this machine only
+sweep serve --sensors all --host 0.0.0.0  # reachable from your phone
+```
+
+Three views: a device list sorted by risk, a detail panel with every decoded
+fact, and a full-screen **finder** — one large number that rises as you get
+closer, with warmer/colder and a signal trace.
+
+Built to be used from a phone while the radios stay on a laptop or a Raspberry
+Pi, because that is the only arrangement iOS allows (see
+[HARDWARE.md](HARDWARE.md)). On iPhone, open the URL in Safari and use
+**Share ▸ Add to Home Screen** for a full-screen app.
+
+- No framework, no build step, no CDN, no web fonts — three static files, so it
+  works with no internet at all.
+- Live updates over Server-Sent Events; reconnects by itself when a phone wakes.
+- Dark and light, following the system theme with a manual override.
+- Verified in Chromium at desktop and iPhone viewports by the tests in
+  `tests/test_web_ui.py`.
+
+**`--host 0.0.0.0` exposes your sweep to the network.** It mints an access token
+and prints it in the URL, but traffic is plain HTTP — use it on a network you
+trust. The default binding is loopback only.
+
+### Keys in the terminal view
 
 | Key | Action |
 |---|---|
@@ -178,6 +207,11 @@ failing, and always says which.
 | Broadband RF | ESP32 + AD8317 module (~£15) | [`firmware/rf_probe/`](firmware/rf_probe/) |
 | Infrared | ESP32 + TSOP38238 **and** BPW34 photodiode (~£5) | [`firmware/ir_probe/`](firmware/ir_probe/) |
 
+[HARDWARE.md](HARDWARE.md) has the full buying guide: what each adapter actually
+unlocks, what `sweep` drives today versus what is roadmap, and what an iPhone
+can and cannot do (short version: it cannot host any of this — no `libusb`, no
+raw HCI, no monitor mode — so it is the screen, not the sensor).
+
 Both probes speak one newline protocol over serial, so anything that can print a
 line can feed them — including a file, which is how you replay a capture:
 
@@ -237,9 +271,12 @@ pip install -e '.[dev]'
 python -m pytest tests/ -q
 ```
 
-71 tests, no hardware required. The decoding layer (`intel/`) is pure functions
-over bytes and is fully covered; `tests/test_engine.py` drives the real engine
-end to end through a scripted fake sensor.
+98 tests, no radio hardware required. The decoding layer (`intel/`) is pure
+functions over bytes and is fully covered; `tests/test_engine.py` drives the
+real engine end to end through a scripted fake sensor; `tests/test_web.py`
+exercises the HTTP and SSE surface over real TCP; `tests/test_web_ui.py` drives
+the UI in Chromium at phone and desktop viewports and is skipped automatically
+when Playwright is not installed.
 
 ### Adding a band
 
@@ -260,6 +297,7 @@ sweep/
              signatures · classify
   threat/    rules (location epochs, follow detection, camera/IR/RF rules)
   ui/        tui (list · detail · find) · render · report
+  web/       server (HTTP + SSE) · static/ (index.html · app.css · app.js)
 firmware/    ir_probe · rf_probe   (reference Arduino/ESP32 sketches)
 ```
 

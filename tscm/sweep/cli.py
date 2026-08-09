@@ -1,5 +1,6 @@
 """Command line interface.
 
+    sweep serve                web UI — open on a laptop or a phone
     sweep scan                 live dashboard across every available band
     sweep find <device>        walk-around ranging on one device
     sweep sweep                timed room sweep, writes a report
@@ -130,6 +131,19 @@ def build_parser() -> argparse.ArgumentParser:
     p_sessions = sub.add_parser("sessions", help="past sweep sessions")
     p_sessions.add_argument("--limit", type=int, default=20)
     add_json_flag(p_sessions)
+
+    p_serve = sub.add_parser(
+        "serve", help="web UI — open it in a browser, or on your phone"
+    )
+    add_sensor_args(p_serve)
+    p_serve.add_argument("--port", type=int, default=8787)
+    p_serve.add_argument(
+        "--host", default="127.0.0.1",
+        help="bind address. 127.0.0.1 (default) is this machine only; "
+             "0.0.0.0 exposes the UI to your network and mints an access token",
+    )
+    p_serve.add_argument("--duration", type=float, help="stop after N seconds")
+    p_serve.add_argument("--open", action="store_true", help="open a browser")
 
     return parser
 
@@ -294,6 +308,61 @@ async def cmd_sweep(args: argparse.Namespace, painter: Painter) -> int:
         print(painter.c(f"report written to {args.out}", "green"))
     else:
         print(text)
+    return 0
+
+
+async def cmd_serve(args: argparse.Namespace, painter: Painter) -> int:
+    from .web import WebServer
+
+    engine = Engine(engine_config(args))
+    statuses = await engine.probe()
+    _print_probe(statuses, painter)
+    engine.ranger.env_factor = path_loss_env_factor(args.env)
+
+    server = WebServer(engine, host=args.host, port=args.port)
+    try:
+        await server.start()
+    except OSError as exc:
+        print(painter.c(f"cannot bind {args.host}:{args.port} — {exc}", "red"))
+        await engine.shutdown()
+        return 2
+
+    await engine.start()
+
+    print()
+    print(painter.c("  " + server.url, "green", bold=True))
+    if server.loopback:
+        print(painter.dim(
+            "  Local only. To read this on your phone, re-run with "
+            "--host 0.0.0.0 and use your machine's LAN address."
+        ))
+    else:
+        print(painter.c(
+            "  Bound to a network interface. The URL above carries an access "
+            "token — anyone on this network who has it can see your sweep.", "orange"))
+        print(painter.dim(
+            "  Traffic is plain HTTP, so treat it as readable by the network. "
+            "Use it on a network you trust."))
+    print(painter.dim("  ctrl-c to stop"))
+    print()
+
+    if args.open:
+        import webbrowser
+
+        webbrowser.open(server.url)
+
+    try:
+        if args.duration:
+            await asyncio.wait_for(engine.stop.wait(), timeout=args.duration)
+        else:
+            await engine.stop.wait()
+    except (asyncio.TimeoutError, KeyboardInterrupt):
+        engine.stop.set()
+    finally:
+        await server.stop()
+        await engine.shutdown()
+
+    print(_closing_summary(engine, painter))
     return 0
 
 
@@ -530,6 +599,7 @@ def main(argv: list[str] | None = None) -> int:
         "find": cmd_find,
         "sweep": cmd_sweep,
         "doctor": cmd_doctor,
+        "serve": cmd_serve,
     }
 
     try:

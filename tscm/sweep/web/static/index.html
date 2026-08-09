@@ -1,0 +1,155 @@
+<!doctype html>
+<html lang="en" data-theme="auto">
+<head>
+<meta charset="utf-8">
+<!-- viewport-fit=cover is what lets env(safe-area-inset-*) return real values
+     on a notched iPhone; without it the layout sits in the letterbox. -->
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=yes">
+<meta name="color-scheme" content="dark light">
+<meta name="theme-color" content="#0b0f14" media="(prefers-color-scheme: dark)">
+<meta name="theme-color" content="#f6f8fa" media="(prefers-color-scheme: light)">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="sweep">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="referrer" content="no-referrer">
+<title>sweep</title>
+<!-- Inlined as a data URI rather than a file: it removes a request, and it
+     keeps the app to three assets that can all be cached in one go. -->
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='14' fill='%230b0f14'/%3E%3Cg fill='none' stroke='%2335d0ba' stroke-width='4' stroke-linecap='round'%3E%3Ccircle cx='32' cy='42' r='3.5' fill='%2335d0ba' stroke='none'/%3E%3Cpath d='M23 33a13 13 0 0 1 18 0'/%3E%3Cpath d='M16 25a23 23 0 0 1 32 0'/%3E%3C/g%3E%3C/svg%3E">
+<link rel="apple-touch-icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 180 180'%3E%3Crect width='180' height='180' fill='%230b0f14'/%3E%3Cg fill='none' stroke='%2335d0ba' stroke-width='10' stroke-linecap='round'%3E%3Ccircle cx='90' cy='118' r='9' fill='%2335d0ba' stroke='none'/%3E%3Cpath d='M65 94a35 35 0 0 1 50 0'/%3E%3Cpath d='M46 72a62 62 0 0 1 88 0'/%3E%3Cpath d='M28 50a88 88 0 0 1 124 0'/%3E%3C/g%3E%3C/svg%3E">
+<link rel="manifest" href="/manifest.webmanifest">
+<link rel="stylesheet" href="/app.css">
+</head>
+<body>
+
+<div id="app" class="app">
+
+  <!-- ══ header ══════════════════════════════════════════════════════ -->
+  <header class="hdr">
+    <div class="hdr-row">
+      <div class="brand">
+        <span class="brand-dot" id="live-dot" aria-hidden="true"></span>
+        <span class="brand-name">sweep</span>
+      </div>
+      <div class="hdr-stats" id="hdr-stats">
+        <span class="stat"><b id="stat-present">0</b><i>present</i></span>
+        <span class="stat"><b id="stat-total">0</b><i>seen</i></span>
+        <span class="stat"><b id="stat-loc">0</b><i>location</i></span>
+      </div>
+      <button class="icon-btn" id="btn-theme" type="button" aria-label="Toggle theme">◐</button>
+    </div>
+    <div class="bands" id="bands" role="list" aria-label="Sensor coverage"></div>
+    <div class="alert-strip" id="alert-strip" hidden></div>
+  </header>
+
+  <!-- ══ device list ═════════════════════════════════════════════════ -->
+  <main class="main" id="view-list">
+    <div class="filters" role="tablist" aria-label="Filter devices">
+      <button class="chip is-on" data-filter="all"      role="tab" type="button">All</button>
+      <button class="chip"       data-filter="alerts"   role="tab" type="button">Alerts</button>
+      <button class="chip"       data-filter="trackers" role="tab" type="button">Trackers</button>
+      <button class="chip"       data-filter="cameras"  role="tab" type="button">Cameras</button>
+      <button class="chip"       data-filter="unknown"  role="tab" type="button">Unknown</button>
+      <button class="chip"       data-filter="mine"     role="tab" type="button">Mine</button>
+    </div>
+
+    <ul class="devices" id="devices" aria-live="polite"></ul>
+
+    <div class="empty" id="empty">
+      <div class="empty-icon" aria-hidden="true">◌</div>
+      <p class="empty-title">Nothing detected yet</p>
+      <p class="empty-body" id="empty-body">Sensors are starting up.</p>
+    </div>
+
+    <p class="disclaimer">
+      A quiet sweep is not an all-clear. A powered-off camera, a wired device, or
+      anything on a band you are not sensing looks exactly like an empty room.
+    </p>
+  </main>
+
+  <!-- ══ find / ranging view ═════════════════════════════════════════ -->
+  <section class="find" id="view-find" hidden aria-label="Ranging">
+    <div class="find-top">
+      <button class="ghost-btn" id="find-back" type="button">‹ Back</button>
+      <div class="find-id">
+        <strong id="find-name">—</strong>
+        <span id="find-meta"></span>
+      </div>
+    </div>
+
+    <div class="find-core">
+      <div class="find-dbm" id="find-dbm">—</div>
+      <div class="find-unit">dBm</div>
+
+      <div class="meter" role="img" aria-label="Signal strength">
+        <div class="meter-fill" id="meter-fill"></div>
+      </div>
+
+      <div class="verdict" id="find-verdict">
+        <span class="verdict-arrow" id="find-arrow">··</span>
+        <span class="verdict-word" id="find-word">CALIBRATING</span>
+      </div>
+
+      <p class="find-note" id="find-note"></p>
+
+      <svg class="spark" id="spark" viewBox="0 0 300 60" preserveAspectRatio="none"
+           aria-hidden="true"></svg>
+
+      <dl class="find-facts">
+        <div><dt>Estimated</dt><dd id="fact-dist">—</dd></div>
+        <div><dt>vs baseline</dt><dd id="fact-delta">—</dd></div>
+        <div><dt>Packets</dt><dd id="fact-packets">—</dd></div>
+        <div><dt>Last seen</dt><dd id="fact-age">—</dd></div>
+      </dl>
+
+      <p class="find-help">
+        Walk a few metres, then stand still for about ten seconds and read the
+        arrow. Signal bounces off walls and bodies — trust the trend, not any
+        single reading.
+      </p>
+    </div>
+  </section>
+
+  <!-- ══ detail sheet ════════════════════════════════════════════════ -->
+  <aside class="sheet" id="sheet" hidden aria-label="Device detail">
+    <div class="sheet-grab" aria-hidden="true"></div>
+    <div class="sheet-head">
+      <div class="sheet-title">
+        <strong id="d-name">—</strong>
+        <span id="d-sub"></span>
+      </div>
+      <button class="icon-btn" id="d-close" type="button" aria-label="Close">✕</button>
+    </div>
+    <div class="sheet-body" id="d-body"></div>
+    <div class="sheet-actions">
+      <button class="btn btn-primary" id="d-find" type="button">Find it</button>
+      <button class="btn" data-trust="mine"    type="button">Mine</button>
+      <button class="btn" data-trust="known"   type="button">Known</button>
+      <button class="btn btn-warn" data-trust="suspect" type="button">Suspect</button>
+    </div>
+  </aside>
+  <div class="scrim" id="scrim" hidden></div>
+
+  <!-- ══ bottom action bar ═══════════════════════════════════════════ -->
+  <nav class="dock" aria-label="Sweep actions">
+    <button class="dock-btn dock-primary" id="btn-epoch" type="button">
+      <span class="dock-glyph" aria-hidden="true">⚑</span>
+      <span class="dock-label">Mark location</span>
+    </button>
+    <button class="dock-btn" id="btn-baseline" type="button">
+      <span class="dock-glyph" aria-hidden="true">◍</span>
+      <span class="dock-label">Baseline</span>
+    </button>
+    <a class="dock-btn" id="btn-report" href="/api/report" download>
+      <span class="dock-glyph" aria-hidden="true">↓</span>
+      <span class="dock-label">Report</span>
+    </a>
+  </nav>
+
+  <div class="toast" id="toast" role="status" aria-live="polite" hidden></div>
+</div>
+
+<script src="/app.js"></script>
+</body>
+</html>
