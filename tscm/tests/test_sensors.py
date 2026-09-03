@@ -278,3 +278,84 @@ def test_prune_is_a_no_op_under_the_cap():
     fusion.ingest(obs("AA:00:00:00:00:01", ts=time.time() - 999))
     assert fusion.prune() == 0
     assert len(fusion.devices) == 1
+
+
+# ---------------------------------------------------------------------------
+# Windows Bluetooth Classic
+# ---------------------------------------------------------------------------
+
+WIN_PNP_JSON = """[
+  {
+    "FriendlyName": "Sony WH-1000XM4",
+    "InstanceId": "BTHENUM\\\\DEV_AC1203F1229B\\\\7&1F2A&0&BLUETOOTHDEVICE_AC1203F1229B",
+    "Status": "OK"
+  },
+  {
+    "FriendlyName": "Intel(R) Wireless Bluetooth(R)",
+    "InstanceId": "USB\\\\VID_8087&PID_0026\\\\5&1A2B3C&0&14",
+    "Status": "OK"
+  },
+  {
+    "FriendlyName": "Some Recorder",
+    "InstanceId": "BTHENUM\\\\DEV_001122334455\\\\8&ABC&0&BLUETOOTHDEVICE_001122334455",
+    "Status": "Unknown"
+  }
+]"""
+
+
+async def test_windows_bt_classic_parses_pnp_and_skips_the_radio(monkeypatch):
+    """The adapter itself has no peer address and must not appear as a device."""
+    from sweep.sensors.btclassic import BtClassicSensor
+
+    sensor = BtClassicSensor()
+    sensor._mode = "windows"
+    monkeypatch.setattr(sensor, "which", lambda b: "powershell")
+    sensor.run_cmd = fake_run_cmd(WIN_PNP_JSON)
+
+    results = await sensor._scan_windows()
+    addresses = {o.address for o in results}
+    assert addresses == {"AC:12:03:F1:22:9B", "00:11:22:33:44:55"}, \
+        "the Intel radio has no DEV_ address and must be skipped"
+
+    headphones = next(o for o in results if o.address == "AC:12:03:F1:22:9B")
+    assert headphones.attrs["name"] == "Sony WH-1000XM4"
+    assert headphones.attrs["connected"] is True
+    assert headphones.band is Band.BT_CLASSIC
+    # The honesty caveat must ride along with the data.
+    assert "not a live inquiry" in headphones.attrs["note"]
+
+    other = next(o for o in results if o.address == "00:11:22:33:44:55")
+    assert other.attrs["connected"] is False
+
+
+async def test_windows_bt_classic_survives_a_single_object_and_bad_json(monkeypatch):
+    """PowerShell's ConvertTo-Json emits a bare object, not a list, for one item."""
+    from sweep.sensors.btclassic import BtClassicSensor
+
+    sensor = BtClassicSensor()
+    sensor._mode = "windows"
+    monkeypatch.setattr(sensor, "which", lambda b: "powershell")
+
+    single = ('{"FriendlyName":"Tag","InstanceId":'
+              '"BTHENUM\\\\DEV_AABBCCDDEEFF\\\\x","Status":"OK"}')
+    sensor.run_cmd = fake_run_cmd(single)
+    assert len(await sensor._scan_windows()) == 1
+
+    sensor.run_cmd = fake_run_cmd("not json at all")
+    assert await sensor._scan_windows() == []
+    assert sensor.status.errors >= 1
+
+
+async def test_bt_classic_is_available_on_windows(monkeypatch):
+    """Regression: Windows fell through to 'no bluez tooling found', so the
+    whole band was dead on the platform most likely to be used."""
+    from sweep.sensors import btclassic
+
+    sensor = btclassic.BtClassicSensor()
+    monkeypatch.setattr(btclassic.sys, "platform", "win32")
+    monkeypatch.setattr(sensor, "which", lambda b: "powershell" if "powershell" in b else None)
+
+    ok, reason = await sensor.available()
+    assert ok is True
+    assert sensor._mode == "windows"
+    assert "not a live inquiry" in reason, "the limitation must be stated up front"

@@ -1,5 +1,9 @@
 # Quickstart
 
+> **On Windows?** Read **[WINDOWS.md](WINDOWS.md)** instead. PowerShell needs
+> different syntax (no `&&`), the firewall needs a rule, and Bluetooth Classic
+> has a real platform limitation worth knowing about before you rely on it.
+
 ## 1. Install
 
 ```bash
@@ -151,3 +155,4 @@ See [HARDWARE.md](HARDWARE.md) for what to plug into the host.
 | Everything reads `<1 m` | Expected. Distance is a path-loss estimate, routinely wrong by 2× indoors. Use the finder's warmer/colder, not the metres. |
 | BLE devices have no names or vendors | You are on the `bluetoothctl` fallback. `pip install bleak` for full advertisement payloads. |
 | Nothing found and you expected something | Read the Coverage tab. A quiet sweep on two bands is not a quiet room. |
+| You are on Windows | See [WINDOWS.md](WINDOWS.md) — PowerShell syntax, firewall, and the Bluetooth Classic caveat. |

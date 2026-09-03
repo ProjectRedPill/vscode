@@ -41,6 +41,15 @@ class BtClassicSensor(Sensor):
                 return True, "system_profiler SPBluetoothDataType"
             return False, "system_profiler not found"
 
+        if sys.platform.startswith("win"):
+            if self.which("powershell") or self.which("pwsh"):
+                self._mode = "windows"
+                return True, (
+                    "PnP device enumeration — paired and previously-seen devices "
+                    "only, not a live inquiry"
+                )
+            return False, "powershell not found"
+
         if self.which("bluetoothctl"):
             self._mode = "bluetoothctl"
             return True, "bluetoothctl inquiry"
@@ -56,6 +65,8 @@ class BtClassicSensor(Sensor):
             try:
                 if self._mode == "macos":
                     results = await self._scan_macos()
+                elif self._mode == "windows":
+                    results = await self._scan_windows()
                 elif self._mode == "bluetoothctl":
                     results = await self._scan_bluetoothctl()
                 elif self._mode == "hcitool":
@@ -181,6 +192,65 @@ class BtClassicSensor(Sensor):
         if uuids:
             attrs["profiles"] = uuids
         return attrs
+
+    # Windows encodes the peer address in the PnP instance id, e.g.
+    # BTHENUM\DEV_AC1203F1229B\7&1F2A3B4C&0&BLUETOOTHDEVICE_AC1203F1229B
+    _WIN_ADDR = re.compile(r"DEV_([0-9A-F]{12})", re.I)
+
+    async def _scan_windows(self) -> list[Observation]:
+        """Enumerate Bluetooth devices Windows knows about.
+
+        An honest caveat, surfaced in the sensor's status line rather than
+        buried here: this is *not* an inquiry. Windows exposes no unprivileged
+        API for an active BR/EDR scan, so what comes back is the set of paired
+        and previously-connected devices, plus whatever the stack currently
+        sees. It will not discover an unpaired recorder sitting in the room the
+        way `hcitool scan` does on Linux — which is a real reason to prefer a
+        Linux host or a Raspberry Pi for a serious sweep.
+        """
+        shell = self.which("pwsh") or self.which("powershell") or "powershell"
+        rc, out, err = await self.run_cmd([
+            shell, "-NoProfile", "-NonInteractive", "-Command",
+            "Get-PnpDevice -Class Bluetooth -ErrorAction SilentlyContinue | "
+            "Select-Object FriendlyName,InstanceId,Status | ConvertTo-Json -Depth 3",
+        ], timeout=30)
+        if rc != 0 and not out.strip():
+            self._fail(err or f"powershell rc={rc}")
+            return []
+
+        import json
+
+        try:
+            data = json.loads(out) if out.strip() else []
+        except json.JSONDecodeError:
+            self._fail("could not parse PowerShell JSON")
+            return []
+        if isinstance(data, dict):     # a single device is not wrapped in a list
+            data = [data]
+
+        results: list[Observation] = []
+        for entry in data:
+            if not isinstance(entry, dict):
+                continue
+            instance = str(entry.get("InstanceId") or "")
+            m = self._WIN_ADDR.search(instance)
+            if not m:
+                # Radios and enumerators carry no peer address; skip them.
+                continue
+            raw = m.group(1).upper()
+            mac = ":".join(raw[i:i + 2] for i in range(0, 12, 2))
+            name = str(entry.get("FriendlyName") or "").strip()
+            attrs: dict[str, Any] = {
+                "backend": "windows-pnp",
+                "windows_status": entry.get("Status"),
+                "connected": str(entry.get("Status") or "").upper() == "OK",
+                "note": (
+                    "Windows reports paired and previously-seen devices, not a "
+                    "live inquiry — an unpaired device in the room may not appear."
+                ),
+            }
+            results.append(self._make(mac, name, attrs))
+        return results
 
     _MAC_ANY = re.compile(r"([0-9A-F]{2}(?::[0-9A-F]{2}){5})", re.I)
 

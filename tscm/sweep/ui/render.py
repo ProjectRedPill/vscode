@@ -47,12 +47,42 @@ _BIG = {
 }
 
 
+def _enable_windows_vt() -> bool:
+    """Turn on ANSI escape processing in a Windows console.
+
+    Windows Terminal handles VT sequences natively, but the legacy conhost that
+    still backs plain `cmd.exe` and older PowerShell windows does not — without
+    this call the UI prints raw escape codes like `<-[38;5;46m` over everything,
+    and the QR code becomes unreadable noise. Returns whether VT is usable.
+    """
+    import ctypes
+
+    ENABLE_VIRTUAL_TERMINAL_PROCESSING = 0x0004
+    STD_OUTPUT_HANDLE = -11
+    try:
+        kernel32 = ctypes.windll.kernel32  # type: ignore[attr-defined]
+        handle = kernel32.GetStdHandle(STD_OUTPUT_HANDLE)
+        mode = ctypes.c_uint32()
+        if not kernel32.GetConsoleMode(handle, ctypes.byref(mode)):
+            return False
+        return bool(kernel32.SetConsoleMode(
+            handle, mode.value | ENABLE_VIRTUAL_TERMINAL_PROCESSING))
+    except Exception:
+        return False
+
+
 def supports_color() -> bool:
     if os.environ.get("NO_COLOR"):
         return False
     if os.environ.get("FORCE_COLOR"):
         return True
-    return hasattr(os.sys.stdout, "isatty") and os.sys.stdout.isatty()  # type: ignore[attr-defined]
+    if not (hasattr(os.sys.stdout, "isatty") and os.sys.stdout.isatty()):  # type: ignore[attr-defined]
+        return False
+    if os.sys.platform.startswith("win"):  # type: ignore[attr-defined]
+        # Windows Terminal sets WT_SESSION and always supports VT; otherwise ask
+        # the console to enable it and believe the answer.
+        return bool(os.environ.get("WT_SESSION")) or _enable_windows_vt()
+    return True
 
 
 class Painter:

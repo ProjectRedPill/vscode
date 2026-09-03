@@ -124,10 +124,21 @@ def probe_system() -> dict[str, Any]:
         if cpu:
             info["cpu"] = cpu
     elif platform.system() == "Windows":
-        out = _run(["wmic", "computersystem", "get", "TotalPhysicalMemory"])
+        # CIM rather than wmic: wmic is deprecated and absent from Windows 11
+        # 24H2 onward, so the old call silently returned nothing on new machines.
+        out = _run([
+            "powershell", "-NoProfile", "-NonInteractive", "-Command",
+            "(Get-CimInstance Win32_ComputerSystem).TotalPhysicalMemory",
+        ], timeout=20)
         digits = re.search(r"(\d{9,})", out)
         if digits:
             info["ram_gb"] = round(int(digits.group(1)) / 1024**3, 1)
+        cpu = _run([
+            "powershell", "-NoProfile", "-NonInteractive", "-Command",
+            "(Get-CimInstance Win32_Processor | Select-Object -First 1).Name",
+        ], timeout=20).strip()
+        if cpu:
+            info["cpu"] = cpu
 
     return info
 

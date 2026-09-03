@@ -102,9 +102,21 @@ CREATE INDEX IF NOT EXISTS ix_obs_session ON observations(session);
 
 
 def default_path() -> Path:
+    """Where the database lives, following each platform's own convention.
+
+    Windows and macOS get their native locations rather than a Unix-style
+    `~/.local/share`, which on Windows would drop a dotted directory into the
+    user profile where nothing else lives and no backup tool expects it.
+    """
     root = os.environ.get("SWEEP_HOME")
     if root:
         return Path(root).expanduser() / "sweep.db"
+
+    if sys.platform.startswith("win"):
+        base = os.environ.get("LOCALAPPDATA") or (Path.home() / "AppData" / "Local")
+        return Path(base) / "sweep" / "sweep.db"
+    if sys.platform == "darwin":
+        return Path.home() / "Library" / "Application Support" / "sweep" / "sweep.db"
     return Path(
         os.environ.get("XDG_DATA_HOME", Path.home() / ".local" / "share")
     ).expanduser() / "sweep" / "sweep.db"

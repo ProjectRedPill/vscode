@@ -78,9 +78,13 @@ def build_parser() -> argparse.ArgumentParser:
         p.add_argument("--spectrum-stop", type=float, default=1700e6)
         p.add_argument("--spectrum-threshold", type=float, default=12.0,
                        help="dB above the rolling noise floor to report a carrier")
-        p.add_argument("--ir-port", help="serial port of an IR probe")
+        p.add_argument("--ir-port",
+                       help="serial port of an IR probe "
+                            "(Linux/macOS /dev/ttyUSB0, Windows COM3)")
         p.add_argument("--ir-fifo", help="file/FIFO of IR probe records")
-        p.add_argument("--rf-port", help="serial port of a broadband RF power probe")
+        p.add_argument("--rf-port",
+                       help="serial port of a broadband RF power probe "
+                            "(Linux/macOS /dev/ttyUSB1, Windows COM4)")
         p.add_argument("--rf-fifo", help="file/FIFO of RF probe records")
         p.add_argument("--env", default="office",
                        choices=["open", "room", "office", "home", "cluttered", "through-wall"],

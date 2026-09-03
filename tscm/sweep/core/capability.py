@@ -90,7 +90,7 @@ UPGRADES: dict[str, Upgrade] = {u.id: u for u in (
     ),
     Upgrade(
         id="rf_probe", name="ESP32 + AD8317 RF power probe",
-        action="build the RF probe, then pass --rf-port /dev/ttyUSB0",
+        action="build the RF probe, then pass --rf-port (COM4 on Windows)",
         kind="hardware", cost="~$20", unlocks=(Band.RF_BROADBAND.value,),
         detail=(
             "Log detector, roughly 1 MHz - 10 GHz, no tuning and no demodulation. "
@@ -101,7 +101,7 @@ UPGRADES: dict[str, Upgrade] = {u.id: u for u in (
     ),
     Upgrade(
         id="ir_probe", name="ESP32 + TSOP38238 + BPW34 IR probe",
-        action="build the IR probe, then pass --ir-port /dev/ttyUSB0",
+        action="build the IR probe, then pass --ir-port (COM3 on Windows)",
         kind="hardware", cost="~$13", unlocks=(Band.IR.value,),
         detail=(
             "Fit both sensors. The TSOP demodulates at 38 kHz and sees remote "
@@ -296,6 +296,31 @@ CLIENT_NOTES: dict[str, dict[str, Any]] = {
 
 # ---------------------------------------------------------------------------
 
+#: Per-platform overrides for upgrade actions. Telling a Windows user to run
+#: `apt install bluez` is the documentation equivalent of the Wi-Fi bug: a
+#: confident instruction that cannot possibly work on their machine.
+_PLATFORM_ACTIONS: dict[str, dict[str, str]] = {
+    "Windows": {
+        "bluez": "already built in — Windows provides the Bluetooth stack",
+        "nm": "already built in — Windows provides netsh wlan",
+        "rtl433": "download rtl_433 for Windows and put it on PATH",
+        "lirc": "not available on Windows — use the IR probe instead",
+    },
+    "Darwin": {
+        "bluez": "already built in — macOS provides the Bluetooth stack",
+        "nm": "already built in — macOS provides Wi-Fi scanning",
+        "rtl433": "brew install rtl_433",
+        "lirc": "brew install lirc (coded IR only)",
+    },
+}
+
+
+def action_for(upgrade: Upgrade, system: str | None = None) -> str:
+    """The upgrade's action, corrected for the platform we are actually on."""
+    system = system or platform.system()
+    return _PLATFORM_ACTIONS.get(system, {}).get(upgrade.id, upgrade.action)
+
+
 def lan_addresses() -> list[str]:
     """Best-effort list of addresses another device on the LAN could reach.
 
@@ -368,7 +393,11 @@ def assess(sensors: list[Any]) -> dict[str, Any]:
 
         # Only suggest upgrades that would actually change this band's status.
         upgrades = [
-            {**asdict(UPGRADES[u]), "unlocks": list(UPGRADES[u].unlocks)}
+            {
+                **asdict(UPGRADES[u]),
+                "unlocks": list(UPGRADES[u].unlocks),
+                "action": action_for(UPGRADES[u]),
+            }
             for u in info.upgrades if u in UPGRADES
         ] if status != "active" else []
 
@@ -433,5 +462,6 @@ def _best_next(missing: list[dict[str, Any]]) -> dict[str, Any] | None:
     return {
         **asdict(best),
         "unlocks": list(best.unlocks),
+        "action": action_for(best),
         "bands_gained": gain,
     }

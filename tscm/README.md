@@ -11,6 +11,7 @@ itself. Then it helps you physically find the ones you care about.
 Everything it reports comes from what devices already broadcast in the clear.
 
 **[QUICKSTART.md](QUICKSTART.md)** — install, launch, and get it onto your phone.
+**[WINDOWS.md](WINDOWS.md)** — PowerShell-specific setup and platform limits.
 [HARDWARE.md](HARDWARE.md) — what to plug in, and what an iPhone can and cannot
 do. [RESEARCH.md](RESEARCH.md) — the survey of the ten projects this draws from.
 
@@ -288,7 +289,7 @@ pip install -e '.[dev]'
 python -m pytest tests/ -q
 ```
 
-171 tests, no radio hardware required. The decoding layer (`intel/`) is pure
+174 tests, no radio hardware required. The decoding layer (`intel/`) is pure
 functions over bytes and is fully covered; `tests/test_engine.py` drives the
 real engine end to end through a scripted fake sensor; `tests/test_web.py`
 exercises the HTTP and SSE surface over real TCP; `tests/test_web_ui.py` drives
