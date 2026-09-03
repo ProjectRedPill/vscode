@@ -48,7 +48,14 @@ sweep scan --sensors all                  # include SDR / IR / RF probes
 sweep find "AirTag"                       # walk-around ranging on one device
 sweep sweep --duration 300 --out room.md  # timed sweep, writes a full report
 sweep decode 0201061eff4c001219...        # decode a captured advert, no hardware
+sweep hwscan                              # what your radios can do that sweep doesn't use
 ```
+
+`doctor` answers *"does this radio work?"*. `hwscan` answers the more useful
+question — *"what is it capable of, and how much am I leaving on the table?"* On
+a typical 2020-or-later laptop the answer is usually a Bluetooth 5 controller
+whose Extended Advertising and Coded PHY go unused, and a Wi-Fi chip whose
+monitor mode goes unused. All three are software work, not purchases.
 
 ## The web UI
 
@@ -281,7 +288,7 @@ pip install -e '.[dev]'
 python -m pytest tests/ -q
 ```
 
-153 tests, no radio hardware required. The decoding layer (`intel/`) is pure
+171 tests, no radio hardware required. The decoding layer (`intel/`) is pure
 functions over bytes and is fully covered; `tests/test_engine.py` drives the
 real engine end to end through a scripted fake sensor; `tests/test_web.py`
 exercises the HTTP and SSE surface over real TCP; `tests/test_web_ui.py` drives

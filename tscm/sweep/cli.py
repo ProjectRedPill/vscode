@@ -8,6 +8,7 @@
     sweep show <device>        every decoded fact about one device
     sweep trust <device> mine  teach it which devices are yours
     sweep doctor               what hardware is usable and what is missing
+    sweep hwscan               what your radios can do that sweep is not using
     sweep decode <hex>         offline: decode a captured advertisement
 """
 
@@ -124,6 +125,11 @@ def build_parser() -> argparse.ArgumentParser:
     p_untrust.add_argument("alias")
 
     add_json_flag(sub.add_parser("doctor", help="report what hardware is usable"))
+
+    add_json_flag(sub.add_parser(
+        "hwscan",
+        help="inspect this machine's radios and what they could do but are not",
+    ))
 
     p_decode = sub.add_parser("decode", help="decode a captured advertisement offline")
     p_decode.add_argument("hex", help="raw AD payload as hex")
@@ -536,6 +542,86 @@ async def cmd_doctor(args: argparse.Namespace, painter: Painter) -> int:
     return 0
 
 
+def cmd_hwscan(args: argparse.Namespace, painter: Painter) -> int:
+    """What this machine's radios can do, versus what sweep uses.
+
+    Distinct from `doctor`, which answers "does it work?". This answers "how
+    much of it am I leaving on the table?" — usually more than people expect.
+    """
+    from .core import hardware
+
+    report = hardware.scan()
+
+    if args.json:
+        print(json.dumps(hardware.as_dict(report), indent=2, default=str))
+        return 0
+
+    sysinfo = report.system
+    print()
+    print("  " + painter.c(
+        f"{sysinfo.get('os')} {sysinfo.get('release')} · {sysinfo.get('machine')}",
+        "white", bold=True))
+    if sysinfo.get("cpu"):
+        print(painter.dim(f"  {sysinfo['cpu']}"))
+    print()
+
+    for subject, data in (
+        ("Bluetooth", report.bluetooth),
+        ("Wi-Fi", report.wifi),
+        ("USB", report.usb),
+    ):
+        print("  " + painter.c(subject, "white", bold=True))
+        if not data:
+            print(painter.dim("    nothing detected"))
+        for key, value in data.items():
+            if key.startswith("raw") or key == "devices":
+                continue
+            shown = ", ".join(str(v) for v in value) if isinstance(value, list) else value
+            print(f"    {painter.dim(key.replace('_', ' ').ljust(20))} {shown}")
+        print()
+
+    used = [f for f in report.findings if f.exploited is True]
+    unused = report.unexploited()
+    info = [f for f in report.findings if f.exploited is None]
+
+    if unused:
+        print("  " + painter.c("Capability you have but are not using", "orange", bold=True))
+        for f in unused:
+            print("    " + painter.c(f"○ {f.detail}", "orange"))
+            for line in _wrap_text(f.note, 72):
+                print(painter.dim("      " + line))
+        print()
+
+    if used:
+        print("  " + painter.c("In use", "green", bold=True))
+        for f in used:
+            print("    " + painter.c("●", "green") + f" {f.detail}")
+        print()
+
+    if info:
+        print("  " + painter.c("Notes", "white", bold=True))
+        for f in info:
+            print(f"    {painter.dim('·')} {f.detail}")
+            for line in _wrap_text(f.note, 72):
+                print(painter.dim("      " + line))
+        print()
+
+    for err in report.errors:
+        print(painter.c(f"  probe error: {err}", "red"))
+
+    if unused:
+        noun = "capability" if len(unused) == 1 else "capabilities"
+        print(painter.c(
+            f"  {len(unused)} unused {noun} — hardware you already own that "
+            "sweep does not yet", "orange"))
+        print(painter.c(
+            "  drive. Every one is software work rather than a purchase.", "orange"))
+    else:
+        print(painter.c("  Everything detected is already in use.", "green"))
+    print()
+    return 0
+
+
 def _wrap_text(text: str, width: int) -> list[str]:
     import textwrap
 
@@ -678,6 +764,7 @@ def main(argv: list[str] | None = None) -> int:
         "untrust": cmd_untrust,
         "decode": cmd_decode,
         "sessions": cmd_sessions,
+        "hwscan": cmd_hwscan,
     }
     handlers_async = {
         "scan": cmd_scan,

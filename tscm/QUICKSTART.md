@@ -25,6 +25,17 @@ Nothing else in this tool means much until you have read that output — "no
 findings" from a sweep that could only hear Bluetooth is not the same claim as
 "no findings" from one that could hear everything.
 
+Then, once, run:
+
+```bash
+sweep hwscan
+```
+
+`doctor` tells you which radios work. `hwscan` inspects what those radios are
+*capable* of and flags what sweep is not yet using — typically Bluetooth 5
+Extended Advertising, LE Coded PHY, and Wi-Fi monitor mode. Those are the
+upgrades that cost nothing.
+
 ## 3. Launch it
 
 ### Just on this machine
