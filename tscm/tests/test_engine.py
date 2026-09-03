@@ -180,3 +180,46 @@ async def test_unavailable_sensors_are_skipped_not_fatal(tmp_path):
     statuses = await engine.probe()
     assert all(not s.available for s in statuses)
     await engine.run_for(0.3)   # must not hang or raise
+
+
+async def test_seen_before_is_cached_per_session(tmp_path, fake_registry):
+    """Regression: every snapshot ran one SQLite query per device, and the SSE
+    stream snapshots twice a second per connected client."""
+    FakeSensor.script = [adv("AA:BB:CC:00:00:01", name="thing")]
+    engine = Engine(EngineConfig(sensors=["fake"], db_path=str(tmp_path / "e.db")))
+    await engine.probe()
+    await engine.start()
+    await asyncio.sleep(0.4)
+
+    engine.snapshot()   # primes the cache
+
+    def boom(*args, **kwargs):
+        raise AssertionError("seen_before must not be re-queried within a session")
+
+    engine.store.seen_before = boom
+    engine.snapshot()   # served from cache, or boom
+    await engine.shutdown()
+
+
+async def test_engine_prunes_after_persisting(tmp_path, fake_registry):
+    from sweep.core.fusion import FusionConfig
+
+    FakeSensor.script = []
+    config = EngineConfig(sensors=["fake"], db_path=str(tmp_path / "e.db"))
+    config.fusion = FusionConfig(max_devices=2, stale_after_s=5)
+    config.persist_interval = 0.0    # prune on the very next tick
+    engine = Engine(config)
+    await engine.probe()
+
+    old = time.time() - 300
+    for i in range(5):
+        engine.handle(Observation(band=Band.BLE, sensor="t",
+                                  address=f"AA:00:00:00:00:{i:02X}", ts=old))
+    assert len(engine.fusion.devices) == 5
+
+    engine._maybe_evaluate()          # persist + prune tick
+    assert len(engine.fusion.devices) <= 2
+
+    # The evicted devices' history survived the eviction on disk.
+    assert engine.store.history_for_address("AA:00:00:00:00:00")
+    await engine.shutdown()

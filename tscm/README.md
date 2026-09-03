@@ -281,12 +281,14 @@ pip install -e '.[dev]'
 python -m pytest tests/ -q
 ```
 
-129 tests, no radio hardware required. The decoding layer (`intel/`) is pure
+153 tests, no radio hardware required. The decoding layer (`intel/`) is pure
 functions over bytes and is fully covered; `tests/test_engine.py` drives the
 real engine end to end through a scripted fake sensor; `tests/test_web.py`
 exercises the HTTP and SSE surface over real TCP; `tests/test_web_ui.py` drives
 the UI in Chromium at phone and desktop viewports and is skipped automatically
-when Playwright is not installed.
+when Playwright is not installed; `tests/test_sensors.py` feeds the subprocess
+parsers realistic captured `nmcli` / `iw` / `netsh` / `bluetoothctl` output,
+which is where the Wi-Fi sensor's first real bug was hiding.
 
 ### Adding a band
 

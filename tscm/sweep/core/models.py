@@ -179,13 +179,28 @@ class Device:
                 seen.append(b)
         return seen
 
+    #: A track counts as "current" if it reported within this many seconds of
+    #: the device's own last sighting. Without the cutoff, a radio that went
+    #: quiet minutes ago but once read strongly (say, Wi-Fi at -40 before the
+    #: camera joined a network) kept winning over the radio that is actually
+    #: transmitting now — so the displayed RSSI, the distance estimate and the
+    #: finder all ranged against dead air.
+    TRACK_FRESHNESS_S = 30.0
+
     @property
     def primary_track(self) -> Track | None:
-        """Strongest current signal wins; that is what ranging should follow."""
-        live = [t for t in self.tracks.values() if t.rssi_smoothed is not None]
-        if not live:
+        """Strongest *fresh* signal wins; that is what ranging should follow."""
+        candidates = [t for t in self.tracks.values() if t.rssi_smoothed is not None]
+        if not candidates:
             return next(iter(self.tracks.values()), None)
-        return max(live, key=lambda t: t.rssi_smoothed or -999)
+        fresh = [
+            t for t in candidates
+            if self.last_seen - t.last_seen <= self.TRACK_FRESHNESS_S
+        ]
+        if fresh:
+            return max(fresh, key=lambda t: t.rssi_smoothed or -999)
+        # Everything is stale: the most recently heard radio is the least wrong.
+        return max(candidates, key=lambda t: t.last_seen)
 
     @property
     def rssi(self) -> float | None:

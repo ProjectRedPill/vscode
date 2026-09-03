@@ -311,3 +311,78 @@ def test_decoder_class_hint_survives_fusion():
     assert dev.device_class is DeviceClass.CAMERA
     # The resolved class must never be readable off the raw attribute bag.
     assert "device_class" not in dev.attrs
+
+
+def test_persist_loop_upserts_sightings_instead_of_appending(tmp_path):
+    """Regression: persist() runs every 20s and each pass appended a fresh row
+    per track — a day of `sweep serve` meant hundreds of thousands of duplicate
+    rows and double-counted history."""
+    with Store(tmp_path / "t.db") as store:
+        f = Fusion()
+        dev = f.ingest(obs("AA:BB:CC:DD:EE:FF", rssi=-70.0))
+        store.save_device(dev, "sess", 0)
+        f.ingest(obs("AA:BB:CC:DD:EE:FF", rssi=-50.0))
+        store.save_device(dev, "sess", 0)
+        store.commit()
+
+        rows = store.history_for_address("AA:BB:CC:DD:EE:FF")
+        assert len(rows) == 1, "same device+session+epoch must be one row"
+        assert rows[0]["packets"] == 2
+        assert rows[0]["best_rssi"] == -50.0
+
+        # A new epoch is a genuinely new sighting and gets its own row.
+        store.save_device(dev, "sess", 1)
+        store.commit()
+        assert len(store.history_for_address("AA:BB:CC:DD:EE:FF")) == 2
+
+
+def test_findings_upsert_by_rule_not_append(tmp_path):
+    from sweep.core.models import Finding
+
+    with Store(tmp_path / "t.db") as store:
+        finding = Finding(rule="tracker.separated", severity=2, title="a", detail="d")
+        store.save_findings("dev1", "sess", [finding])
+        finding.severity = 4
+        finding.title = "escalated"
+        store.save_findings("dev1", "sess", [finding])
+        store.commit()
+
+        rows = store.findings_for_session("sess")
+        assert len(rows) == 1
+        assert rows[0]["severity"] == 4
+        assert rows[0]["title"] == "escalated"
+
+
+def test_migration_dedupes_databases_from_before_the_unique_index(tmp_path):
+    """A database written by the old append-only code opens cleanly: duplicates
+    fold into the newest row and the unique index builds over the result."""
+    import sqlite3 as sq
+
+    path = tmp_path / "old.db"
+    raw = sq.connect(path)
+    raw.executescript(
+        """CREATE TABLE sightings (
+               id INTEGER PRIMARY KEY AUTOINCREMENT,
+               device_id TEXT NOT NULL, session TEXT NOT NULL,
+               epoch INTEGER NOT NULL, band TEXT, address TEXT,
+               first_seen REAL, last_seen REAL, best_rssi REAL, packets INTEGER);
+           CREATE TABLE findings (
+               id INTEGER PRIMARY KEY AUTOINCREMENT,
+               device_id TEXT NOT NULL, session TEXT NOT NULL, ts REAL NOT NULL,
+               rule TEXT NOT NULL, severity INTEGER NOT NULL,
+               title TEXT, detail TEXT, evidence TEXT);"""
+    )
+    for i in range(5):   # five snapshots of the same sighting, as the old loop wrote
+        raw.execute(
+            "INSERT INTO sightings (device_id, session, epoch, band, address,"
+            " first_seen, last_seen, best_rssi, packets) VALUES"
+            " ('d1','s1',0,'ble','AA:BB',1.0,?,?,?)",
+            (float(i), -80.0 + i, i + 1),
+        )
+    raw.commit()
+    raw.close()
+
+    with Store(path) as store:
+        rows = store.history_for_address("AA:BB")
+        assert len(rows) == 1
+        assert rows[0]["packets"] == 5, "the newest (most complete) row survives"

@@ -77,12 +77,19 @@ async def read_serial(
     except ImportError:
         raise RuntimeError("pyserial is required for serial probes: pip install pyserial")
 
+    import threading
+
     loop = asyncio.get_running_loop()
     queue: asyncio.Queue[str] = asyncio.Queue(maxsize=1024)
     handle = serial.Serial(port, baud, timeout=0.5)
+    # The pump thread's own shutdown flag. It must NOT be the shared `stop`:
+    # that event belongs to the whole engine, and setting it from this
+    # generator's cleanup meant a decode error or an unplugged probe shut the
+    # entire sweep down instead of just this one sensor.
+    done = threading.Event()
 
     def pump() -> None:
-        while not stop.is_set():
+        while not (stop.is_set() or done.is_set()):
             try:
                 raw = handle.readline()
             except Exception:
@@ -110,8 +117,11 @@ async def read_serial(
             if record:
                 yield record
     finally:
-        stop.set()
-        await asyncio.wrap_future(task) if hasattr(task, "cancel") else None
+        done.set()
+        try:
+            await task
+        except Exception:
+            pass
 
 
 async def read_file(path: str, stop: asyncio.Event) -> AsyncIterator[dict[str, Any]]:

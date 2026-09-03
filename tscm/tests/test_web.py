@@ -308,3 +308,60 @@ async def test_oversized_body_is_refused(served):
     writer.close()
     # Body is dropped, so the handler sees an empty payload and rejects it.
     assert b"400" in raw.split(b"\r\n", 1)[0] or b"error" in raw
+
+
+async def test_range_and_state_use_separate_cadences(served):
+    """The finder needs ~2 Hz; the device list does not. Pushing the whole list
+    at the finder's rate cost ~65 KiB/s per client in a busy room."""
+    engine, server, client = served
+    server.push_interval = 0.05
+    server.state_interval = 10.0     # far beyond the window we sample
+
+    dev = engine.fusion.get("Test Phone")
+    engine.target(dev.id)
+
+    reader, writer = await asyncio.open_connection("127.0.0.1", server.port)
+    writer.write(b"GET /api/events HTTP/1.1\r\nHost: localhost\r\n\r\n")
+    await writer.drain()
+    await asyncio.wait_for(reader.readuntil(b"\r\n\r\n"), timeout=5)
+
+    chunk = b""
+    for _ in range(6):
+        chunk += await asyncio.wait_for(reader.read(65536), timeout=5)
+    writer.close()
+
+    # One state frame (the first), many range frames.
+    assert chunk.count(b"event: state") == 1
+    assert chunk.count(b"event: range") > 1
+
+
+async def test_no_range_frames_when_nothing_is_targeted(served):
+    _, server, _ = served
+    server.push_interval = 0.05
+
+    reader, writer = await asyncio.open_connection("127.0.0.1", server.port)
+    writer.write(b"GET /api/events HTTP/1.1\r\nHost: localhost\r\n\r\n")
+    await writer.drain()
+    await asyncio.wait_for(reader.readuntil(b"\r\n\r\n"), timeout=5)
+    chunk = await asyncio.wait_for(reader.read(65536), timeout=5)
+    writer.close()
+
+    assert b"event: range" not in chunk
+    assert b"event: state" in chunk
+
+
+async def test_stream_omits_raw_payloads_but_device_detail_keeps_them(served):
+    """The stream repeats constantly and the UI never renders raw hex; the
+    on-demand detail endpoint is where the full record lives."""
+    engine, _, client = served
+    dev = engine.fusion.get("Test Phone")
+    dev.set_attr("mfr_data_004c", "deadbeef" * 8, "test")
+
+    state = await client.json("GET", "/api/state")
+    streamed = next(d for d in state["devices"] if d["id"] == dev.id)
+    assert not any(k.startswith("mfr_data_") for k in streamed["attributes"])
+    assert streamed["attributes"]["name"] == "Test Phone"
+
+    detail = await client.json("GET", f"/api/device/{dev.id}")
+    assert detail["attributes"]["mfr_data_004c"].startswith("deadbeef")
+    assert detail["attribute_sources"]

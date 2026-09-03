@@ -70,6 +70,11 @@ CREATE TABLE IF NOT EXISTS sightings (
 );
 CREATE INDEX IF NOT EXISTS ix_sightings_device ON sightings(device_id);
 CREATE INDEX IF NOT EXISTS ix_sightings_address ON sightings(address);
+-- One row per (device, session, epoch, radio). The periodic persist loop
+-- UPSERTs into this; without the constraint it appended a fresh copy of every
+-- track every 20 seconds, which ballooned the database and double-counted
+-- history. The dedupe for databases created before the constraint existed
+-- lives in _migrate().
 
 CREATE TABLE IF NOT EXISTS findings (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -112,11 +117,46 @@ class Store:
         self.db = sqlite3.connect(str(self.path))
         self.db.row_factory = sqlite3.Row
         self.db.executescript(_SCHEMA)
+        self._migrate()
         self.db.execute(
             "INSERT OR REPLACE INTO meta(key, value) VALUES('schema_version', ?)",
             (str(SCHEMA_VERSION),),
         )
         self.db.commit()
+
+    def _migrate(self) -> None:
+        """Bring a pre-existing database up to the current shape.
+
+        The unique index on sightings arrived after databases were already in
+        the wild, and `CREATE UNIQUE INDEX` refuses to build over duplicates —
+        so the duplicates the old append-only persist loop created are folded
+        into one row (keeping the widest time span, best RSSI and highest
+        packet count) before the index is created.
+        """
+        self.db.execute(
+            """DELETE FROM sightings WHERE id NOT IN (
+                   SELECT MAX(id) FROM sightings
+                   GROUP BY device_id, session, epoch, band, address
+               )"""
+        )
+        self.db.execute(
+            "CREATE UNIQUE INDEX IF NOT EXISTS ux_sightings "
+            "ON sightings(device_id, session, epoch, band, address)"
+        )
+
+        # Findings had the same append-per-persist problem: the same rule on
+        # the same device re-recorded every cycle. One row per rule firing per
+        # device per session, updated in place as severity or detail evolves.
+        self.db.execute(
+            """DELETE FROM findings WHERE id NOT IN (
+                   SELECT MAX(id) FROM findings
+                   GROUP BY device_id, session, rule
+               )"""
+        )
+        self.db.execute(
+            "CREATE UNIQUE INDEX IF NOT EXISTS ux_findings "
+            "ON findings(device_id, session, rule)"
+        )
 
     def close(self) -> None:
         self.db.commit()
@@ -179,11 +219,24 @@ class Store:
         for (band, _key_address), track in dev.tracks.items():
             # Store the address as the sensor reported it, not the lower-cased
             # lookup key, so a report can be pasted straight back into a query.
+            # UPSERT, not INSERT: persist() runs on a timer, and appending a
+            # fresh row per track every 20 seconds turned a day of `sweep serve`
+            # into hundreds of thousands of duplicate rows.
             self.db.execute(
                 """INSERT INTO sightings
                    (device_id, session, epoch, band, address,
                     first_seen, last_seen, best_rssi, packets)
-                   VALUES (?,?,?,?,?,?,?,?,?)""",
+                   VALUES (?,?,?,?,?,?,?,?,?)
+                   ON CONFLICT(device_id, session, epoch, band, address)
+                   DO UPDATE SET
+                       first_seen = MIN(first_seen, excluded.first_seen),
+                       last_seen  = MAX(last_seen, excluded.last_seen),
+                       best_rssi  = CASE
+                           WHEN best_rssi IS NULL THEN excluded.best_rssi
+                           WHEN excluded.best_rssi IS NULL THEN best_rssi
+                           ELSE MAX(best_rssi, excluded.best_rssi)
+                       END,
+                       packets    = MAX(packets, excluded.packets)""",
                 (
                     dev.id, session, epoch, band, track.address,
                     track.first_seen, track.last_seen, track.rssi_max, track.count,
@@ -195,7 +248,13 @@ class Store:
             self.db.execute(
                 """INSERT INTO findings
                    (device_id, session, ts, rule, severity, title, detail, evidence)
-                   VALUES (?,?,?,?,?,?,?,?)""",
+                   VALUES (?,?,?,?,?,?,?,?)
+                   ON CONFLICT(device_id, session, rule) DO UPDATE SET
+                       ts = excluded.ts,
+                       severity = excluded.severity,
+                       title = excluded.title,
+                       detail = excluded.detail,
+                       evidence = excluded.evidence""",
                 (
                     device_id, session, f.ts, f.rule, f.severity,
                     f.title, f.detail, json.dumps(_jsonable(f.evidence)),

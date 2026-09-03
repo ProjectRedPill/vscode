@@ -105,6 +105,15 @@ function connect() {
     render();
   });
 
+  /* The ranging readout arrives on its own faster channel; the device list
+     comes at a slower cadence on 'state'. Merge rather than replace, so a
+     range frame never blanks the list. */
+  source.addEventListener('range', (ev) => {
+    if (!S.state) return;
+    try { S.state.range = JSON.parse(ev.data); } catch { return; }
+    if (S.view === 'find') renderFind();
+  });
+
   source.addEventListener('finding', (ev) => {
     let f;
     try { f = JSON.parse(ev.data); } catch { return; }
@@ -680,6 +689,12 @@ function init() {
   });
 
   connect();
+  // The stream's first 'state' frame can be up to state_interval away; fetch
+  // once immediately so the list is not blank on open.
+  fetch(withToken('/api/state'))
+    .then((r) => r.json())
+    .then((s) => { if (!S.state) { S.state = s; S.connected = true; render(); } })
+    .catch(() => { /* the stream will fill it in */ });
   loadCapability();
   // Sensors can become available mid-run (a probe plugged in, a service
   // started), so the picture is refreshed rather than fetched once.

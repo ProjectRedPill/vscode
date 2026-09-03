@@ -28,7 +28,7 @@ from typing import Any
 
 from ..intel import classify as classifier
 from ..intel import oui
-from .models import Band, Device, DeviceClass, Observation, Track
+from .models import Band, Device, DeviceClass, Observation, Track, Trust
 from .rssi import KalmanRssi
 
 #: Attributes that identify a device across MAC rotation, best first.
@@ -63,6 +63,11 @@ class FusionConfig:
     kalman_r: float = 9.0
     #: Devices with no observation for this long stop being "present".
     stale_after_s: float = 120.0
+    #: Ceiling on the in-memory device table. A day of `sweep serve` in a dense
+    #: area accumulates thousands of one-shot rotating addresses that will
+    #: never be seen again; past this cap, prune() evicts the long-quiet ones.
+    #: Flagged and trusted devices are never evicted.
+    max_devices: int = 2000
 
 
 class Fusion:
@@ -315,6 +320,57 @@ class Fusion:
 
     def link_history(self, device_id: str) -> list[LinkEvidence]:
         return self.links.get(device_id, [])
+
+    # -- memory bounds ----------------------------------------------------
+
+    def prune(self, now: float | None = None) -> int:
+        """Evict long-quiet devices once the table exceeds its cap.
+
+        Nothing in fusion previously ever shrank: devices, the address and
+        link-key indexes, per-track Kalman filters and link evidence all grew
+        for the life of the process, which is a slow leak for exactly the
+        deployment we recommend — a Raspberry Pi left running for days.
+
+        Eviction is deliberately conservative. Only devices past the staleness
+        window are candidates, oldest-seen go first, and a device is spared if
+        it ever reached medium severity, carries a trust decision, or has a
+        label — those are the ones a human might come back to ask about. The
+        caller is expected to have persisted state first, so an evicted device
+        that reappears is a fresh Device in memory but still has its history
+        and trust in SQLite.
+        """
+        now = now or time.time()
+        excess = len(self.devices) - self.config.max_devices
+        if excess <= 0:
+            return 0
+
+        candidates = sorted(
+            (
+                d for d in self.devices.values()
+                if now - d.last_seen > self.config.stale_after_s
+                and d.trust is Trust.UNSET
+                and d.label is None
+                and max((f.severity for f in d.findings), default=0) < 2
+            ),
+            key=lambda d: d.last_seen,
+        )[:excess]
+
+        evicted = {d.id for d in candidates}
+        if not evicted:
+            return 0
+
+        for dev in candidates:
+            del self.devices[dev.id]
+            for key in dev.tracks:
+                self._filters.pop(key, None)
+            self.links.pop(dev.id, None)
+        self._by_address = {
+            k: v for k, v in self._by_address.items() if v not in evicted
+        }
+        self._by_link_key = {
+            k: v for k, v in self._by_link_key.items() if v not in evicted
+        }
+        return len(evicted)
 
     def stats(self) -> dict[str, Any]:
         by_band: dict[str, int] = {}

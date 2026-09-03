@@ -95,13 +95,18 @@ class WifiSensor(Sensor):
                 pass
 
     async def _scan(self) -> list[Observation]:
-        return {
+        # The await here is load-bearing. Returning the handler's coroutine
+        # un-awaited hands the caller a coroutine object instead of a list, and
+        # `for obs in results` then raises outside run()'s try — which killed
+        # the whole Wi-Fi sensor on its first scan, on every platform.
+        handler = {
             "nmcli": self._scan_nmcli,
             "iw": self._scan_iw,
             "airport": self._scan_airport,
             "netsh": self._scan_netsh,
             "wdutil": self._scan_wdutil,
-        }.get(self._mode or "", self._none)()  # type: ignore[return-value]
+        }.get(self._mode or "", self._none)
+        return await handler()
 
     async def _none(self) -> list[Observation]:
         return []
@@ -330,7 +335,9 @@ class WifiSensor(Sensor):
 
 def _int(value: Any) -> int | None:
     try:
-        return int(str(value).strip().split()[0])
+        # netsh reports "Signal : 99%" — without the rstrip, every Windows
+        # signal reading failed to parse and Wi-Fi rows carried no RSSI at all.
+        return int(str(value).strip().split()[0].rstrip("%"))
     except (ValueError, IndexError, TypeError):
         return None
 

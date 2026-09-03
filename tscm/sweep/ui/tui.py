@@ -191,7 +191,7 @@ class Tui:
             self.paint.dim(
                 f"  {stats['present']} present / {stats['devices']} seen · "
                 f"{stats['observations']} packets · location {e.context.epoch} · "
-                f"{e.snapshot()['elapsed_s']:.0f}s · "
+                f"{time.time() - e.started:.0f}s · "
             ) + alert_txt,
             self.paint.dim("─" * min(width, 120)),
         ]

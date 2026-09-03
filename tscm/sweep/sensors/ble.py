@@ -24,6 +24,28 @@ from ..intel import oui
 from .base import Sensor
 
 
+def parse_bctl_rssi(value: str) -> float | None:
+    """Parse the RSSI field from bluetoothctl output.
+
+    Older BlueZ prints `RSSI: -54`; newer builds print `RSSI: 0xffca (-54)` —
+    a hex *unsigned 16-bit* rendering of the signed value. The previous code
+    called `float(text, 0)`, which is a TypeError (float takes no base), and
+    the surrounding `except ValueError` did not catch it — so the fallback
+    sensor died mid-stream on the first hex-formatted line.
+    """
+    token = value.strip().split()[0] if value.strip() else ""
+    if not token:
+        return None
+    try:
+        if token.lower().startswith("0x"):
+            raw = int(token, 16)
+            # Two's-complement: 0xffca is -54, not 65482.
+            return float(raw - 0x10000 if raw > 0x7FFF else raw)
+        return float(token)
+    except ValueError:
+        return None
+
+
 class BleSensor(Sensor):
     name = "ble"
     band = Band.BLE
@@ -205,11 +227,9 @@ class BleSensor(Sensor):
                 entry = pending.setdefault(mac, {})
                 key = key.lower()
                 if key == "rssi":
-                    try:
-                        entry["rssi"] = float(value.split()[0].replace("x", ""), 0) \
-                            if value.strip().startswith("0x") else float(value.split()[0])
-                    except ValueError:
-                        pass
+                    rssi = parse_bctl_rssi(value)
+                    if rssi is not None:
+                        entry["rssi"] = rssi
                 elif key in ("name", "alias"):
                     entry["name"] = value.strip()
                 elif key == "class":

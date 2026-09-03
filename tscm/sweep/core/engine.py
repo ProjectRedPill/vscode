@@ -57,10 +57,23 @@ class Engine:
         self._last_eval = 0.0
         self._last_persist = 0.0
         self._on_finding: list[Callable[[Device, Finding], None]] = []
+        # "Seen in earlier sessions" cannot change during this session, but it
+        # was queried from SQLite per device on every snapshot — and snapshots
+        # drive the SSE stream at 2/s per connected client. Cached by
+        # (device id, address) so a re-linked address still gets a fresh look.
+        self._seen_before: dict[tuple[str, str], int] = {}
 
     # -- lifecycle -------------------------------------------------------
 
     async def probe(self) -> list[SensorStatus]:
+        # Merge any host-provided vendor tables (Wireshark manuf, IEEE oui.txt)
+        # before scanning starts. This used to happen only in `sweep doctor`,
+        # so live scans identified vendors from the small bundled table while
+        # doctor showed off the full one — the worse answer where it mattered.
+        from ..intel import sig
+
+        sig.load_external()
+
         self.sensors = build(self.config.sensors or None, **self.config.sensor_options)
         return [await s.probe() for s in self.sensors]
 
@@ -159,6 +172,9 @@ class Engine:
         if now - self._last_persist >= self.config.persist_interval:
             self._last_persist = now
             self.persist()
+            # Prune only after persisting, so an evicted device that returns is
+            # a fresh object in memory but keeps its history and trust on disk.
+            self.fusion.prune(now)
 
     def evaluate_all(self) -> list[tuple[Device, Finding]]:
         """Re-run rules over every present device. Returns findings that are new."""
@@ -228,7 +244,16 @@ class Engine:
 
     # -- reporting -------------------------------------------------------
 
-    def snapshot(self) -> dict[str, Any]:
+    def snapshot(self, full: bool = True) -> dict[str, Any]:
+        """The engine's state as one dict.
+
+        `full=False` drops the raw hex payloads and attribute provenance from
+        each device. The SSE stream pushes a snapshot twice a second per
+        connected client, and in a dense environment the undecoded
+        manufacturer-data blobs were most of the bytes — carried on every push
+        for fields the web UI never renders. Reports and `/api/device/<id>`
+        stay full.
+        """
         devices = sorted(
             self.fusion.present(),
             key=lambda d: (-d.risk, -(d.rssi or -999)),
@@ -249,11 +274,17 @@ class Engine:
                 }
                 for s in self.sensors
             ],
-            "devices": [device_dict(d, self) for d in devices],
+            "devices": [device_dict(d, self, full=full) for d in devices],
         }
 
 
-def device_dict(dev: Device, engine: Engine | None = None) -> dict[str, Any]:
+#: Attribute prefixes that are raw captured bytes rather than decoded facts.
+_RAW_ATTR_PREFIXES = ("mfr_data_", "svc_data_")
+
+
+def device_dict(
+    dev: Device, engine: Engine | None = None, full: bool = True
+) -> dict[str, Any]:
     """Full detail for one device — the 'tell me everything' view."""
     tracks = []
     for (band, address), t in dev.tracks.items():
@@ -287,8 +318,11 @@ def device_dict(dev: Device, engine: Engine | None = None) -> dict[str, Any]:
         "last_seen": dev.last_seen,
         "age_s": round(dev.age, 1),
         "tracks": tracks,
-        "attributes": dev.attrs,
-        "attribute_sources": dev.attr_source,
+        "attributes": dev.attrs if full else {
+            k: v for k, v in dev.attrs.items()
+            if not k.startswith(_RAW_ATTR_PREFIXES)
+        },
+        "attribute_sources": dev.attr_source if full else {},
         "findings": [
             {
                 "rule": f.rule, "severity": f.severity,
@@ -305,7 +339,10 @@ def device_dict(dev: Device, engine: Engine | None = None) -> dict[str, Any]:
             for e in engine.fusion.link_history(dev.id)
         ]
         out["epochs_seen"] = engine.context.epochs_for(dev.id)
-        out["seen_in_previous_sessions"] = engine.store.seen_before(
-            dev.address, engine.session
-        )
+        cache_key = (dev.id, dev.address)
+        if cache_key not in engine._seen_before:
+            engine._seen_before[cache_key] = engine.store.seen_before(
+                dev.address, engine.session
+            )
+        out["seen_in_previous_sessions"] = engine._seen_before[cache_key]
     return out

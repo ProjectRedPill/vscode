@@ -51,11 +51,15 @@ class WebServer:
         port: int = 8787,
         token: str | None = None,
         push_interval: float = 0.5,
+        state_interval: float = 2.0,
     ) -> None:
         self.engine = engine
         self.host = host
         self.port = port
+        #: How often the ranging readout is pushed while a target is selected.
         self.push_interval = push_interval
+        #: How often the full device list is pushed. Deliberately slower.
+        self.state_interval = state_interval
         self.loopback = host in ("127.0.0.1", "::1", "localhost")
         # A token is only minted when it is actually needed. Forcing one on
         # loopback would just train people to paste tokens without reading.
@@ -65,6 +69,10 @@ class WebServer:
         self._pending: list[dict[str, Any]] = []
 
     # -- lifecycle -------------------------------------------------------
+
+    @property
+    def range_active(self) -> bool:
+        return self.engine.range_target is not None
 
     @property
     def url(self) -> str:
@@ -322,7 +330,10 @@ class WebServer:
         return _json(self._state())
 
     def _state(self) -> dict[str, Any]:
-        snap = self.engine.snapshot()
+        # Light snapshot: the stream repeats twice a second per client, and the
+        # raw hex payloads it would otherwise carry are never rendered by the
+        # web UI — /api/device/<id> serves the full record on demand.
+        snap = self.engine.snapshot(full=False)
         snap["range"] = self._range_payload()
         snap["baseline_set"] = bool(self.engine.context.baseline_ids)
         return snap
@@ -373,17 +384,32 @@ class WebServer:
         self._clients.add(writer)
 
         last_beat = time.time()
+        last_state = 0.0
         try:
             while not self.engine.stop.is_set():
+                now = time.time()
+
                 while self._pending:
                     event = self._pending.pop(0)
                     writer.write(
                         f"event: finding\ndata: {json.dumps(event, default=str)}\n\n".encode()
                     )
 
-                writer.write(b"event: state\ndata: " + self._state_bytes() + b"\n\n")
+                # Two cadences, because they have genuinely different needs.
+                # The ranging readout is a live instrument someone is walking
+                # with and wants at ~2 Hz; the device list is a slow inventory.
+                # Pushing the whole list at the finder's rate cost ~65 KiB/s per
+                # client in a busy room — around 230 MB an hour on a phone.
+                if self.range_active:
+                    writer.write(
+                        b"event: range\ndata: "
+                        + _json(self._range_payload()) + b"\n\n"
+                    )
 
-                now = time.time()
+                if now - last_state >= self.state_interval:
+                    last_state = now
+                    writer.write(b"event: state\ndata: " + self._state_bytes() + b"\n\n")
+
                 if now - last_beat > 15:
                     # Comment frames keep iOS Safari from dropping an idle
                     # connection when the screen locks.
