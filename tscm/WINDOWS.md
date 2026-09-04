@@ -35,56 +35,144 @@ handle the colour output or the QR code well. `sweep` now switches the console
 into ANSI mode automatically, but Windows Terminal is still the better
 experience. It is free in the Microsoft Store and is the default on Windows 11.
 
-## 2. Get the code
+## 2. Deploy it into a folder you choose
 
-You need to clone it first — this is the step people miss.
+The layout below keeps everything sweep needs inside one directory, so it can
+be moved or deleted in one piece:
 
-```powershell
-cd $HOME
-git clone --depth 1 https://github.com/ProjectRedPill/vscode.git
-cd vscode\tscm
+```
+<InstallDir>\
+    src\        the git clone
+    .venv\      an isolated Python environment
+    sweep.cmd   launcher
 ```
 
-`--depth 1` matters: this lives inside a fork of VS Code, whose full history is
-enormous. Shallow-cloning takes it from many minutes to about one.
+The virtual environment is deliberate. Installing into a conda `base`
+environment works, but sweep then breaks the moment that environment is rebuilt
+or you activate a different one. A dedicated `.venv` owns everything it needs.
 
-If you want the branch before it is merged to `main`:
+### Manual (recommended — one command at a time, easy to check)
+
+Substitute your own path for `$Install` if you want it elsewhere.
 
 ```powershell
-git clone --depth 1 -b claude/spy-device-detection-563yo0 https://github.com/ProjectRedPill/vscode.git
-cd vscode\tscm
+$Install = "$HOME\.cursor\sweep"
+New-Item -ItemType Directory -Force -Path $Install
+cd $Install
 ```
 
-## 3. Install
+Clone. `--depth 1` matters — this lives inside a fork of VS Code whose full
+history is enormous, and shallow cloning takes it from many minutes to about one:
 
 ```powershell
-pip install -e ".[all]"
+git clone --depth 1 -b claude/spy-device-detection-563yo0 https://github.com/ProjectRedPill/vscode.git src
 ```
 
-Note the **double quotes** around `".[all]"`. PowerShell treats square brackets
-as wildcard characters, and an unquoted `.[all]` can fail to match anything.
+Once the branch is merged, use `-b main` instead.
 
-## 4. Check what your machine can do
+Create the environment and install:
 
 ```powershell
-sweep doctor
-sweep hwscan
+python -m venv .venv
+.\.venv\Scripts\python.exe -m pip install --upgrade pip
+.\.venv\Scripts\python.exe -m pip install -e ".\src\tscm[all]"
+```
+
+> **Quote the path.** PowerShell treats `[` and `]` as wildcard characters, so
+> an unquoted `.\src\tscm[all]` can silently match nothing.
+
+Make a launcher so you do not have to type the venv path every time:
+
+```powershell
+'@echo off' | Set-Content sweep.cmd -Encoding ASCII
+'"%~dp0.venv\Scripts\sweep.exe" %*' | Add-Content sweep.cmd -Encoding ASCII
+```
+
+Check it:
+
+```powershell
+.\sweep.cmd doctor
+```
+
+### Scripted (for re-deploying and updating)
+
+The script lives *inside* the repo, so it cannot do the very first clone for
+you — do the manual steps above once, then this handles every rebuild:
+
+```powershell
+.\src\tscm\scripts\deploy-windows.ps1 -InstallDir "$HOME\.cursor\sweep" -Branch claude/spy-device-detection-563yo0
+```
+
+It updates the clone, rebuilds the environment, reinstalls, rewrites the
+launcher and verifies. Safe to re-run at any time.
+
+If PowerShell refuses to run it — *"running scripts is disabled on this
+system"* — allow local scripts for that one session only:
+
+```powershell
+Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass
+```
+
+> That script was written on Linux and **has not been run on a real Windows
+> machine**. If it misbehaves, the manual steps above do exactly the same thing
+> and are easier to debug a line at a time.
+
+### Updating later
+
+```powershell
+cd "$HOME\.cursor\sweep\src"
+git pull
+```
+
+The install is editable (`-e`), so a `git pull` is the whole update — no
+reinstall needed.
+
+### A note on `.cursor`
+
+`C:\Users\Rick\.cursor` is **Cursor's own configuration directory** — it holds
+extensions, `mcp.json` and rules. Cursor can rewrite or reset it during updates
+or a reinstall, which would take the clone and your sweep database with it.
+
+Using a `sweep` subfolder (as above) avoids colliding with anything Cursor owns,
+which is the main risk. But if you would rather it were somewhere Cursor never
+touches, any other path works identically — `$HOME\tools\sweep`, say. Nothing in
+sweep cares where it lives.
+
+Worth knowing regardless: your sweep database does **not** live in the install
+folder. It is at `%LOCALAPPDATA%\sweep\sweep.db`, so it survives deleting and
+re-deploying the folder. That is the file to back up if you care about sweep
+history.
+
+## 3. Check what your machine can do
+
+From the install folder:
+
+```powershell
+cd "$HOME\.cursor\sweep"
+.\sweep.cmd doctor
+.\sweep.cmd hwscan
 ```
 
 `doctor` says which bands you can sense. `hwscan` says what your radios are
 *capable* of and what `sweep` is not yet using.
 
-If `sweep` is not recognised as a command, the Scripts directory is not on your
-PATH. Use `python -m sweep` instead — identical in every way:
+To drop the `.\sweep.cmd` prefix, add the folder to PATH for this session:
 
 ```powershell
-python -m sweep doctor
+$env:Path += ";$HOME\.cursor\sweep"
+sweep doctor
 ```
 
-## 5. Run it
+To make that permanent (takes effect in new terminals):
 
 ```powershell
-sweep serve --open
+[Environment]::SetEnvironmentVariable("Path", $env:Path + ";$HOME\.cursor\sweep", "User")
+```
+
+## 4. Run it
+
+```powershell
+.\sweep.cmd serve --open
 ```
 
 Opens `http://localhost:8787/` in your browser.
@@ -92,7 +180,7 @@ Opens `http://localhost:8787/` in your browser.
 To reach it from your phone:
 
 ```powershell
-sweep serve --host 0.0.0.0
+.\sweep.cmd serve --host 0.0.0.0
 ```
 
 **Windows Firewall will prompt on the first run.** You must click **Allow
@@ -114,7 +202,7 @@ Get-CimInstance Win32_SerialPort | Select-Object DeviceID, Description
 Then:
 
 ```powershell
-sweep serve --host 0.0.0.0 --sensors all --ir-port COM3 --rf-port COM4
+.\sweep.cmd serve --host 0.0.0.0 --sensors all --ir-port COM3 --rf-port COM4
 ```
 
 ---
@@ -185,10 +273,12 @@ machine. Override with `--db` or the `SWEEP_HOME` environment variable.
 |---|---|
 | `The token '&&' is not a valid statement separator` | PowerShell 5.1 has no `&&`. One command per line, or use `;`. |
 | `Cannot find path 'C:\vscode\tscm'` | You have not cloned yet. See step 2. |
-| `sweep : The term 'sweep' is not recognized` | Scripts dir not on PATH. Use `python -m sweep …`. |
-| `pip install -e .[all]` matches nothing | Quote it: `pip install -e ".[all]"`. |
+| `sweep : The term 'sweep' is not recognized` | You are outside the install folder, or it is not on PATH. Use `.\sweep.cmd …` from the folder, or add it to PATH (step 3). |
+| `pip install -e .\src\tscm[all]` matches nothing | PowerShell treats `[ ]` as wildcards. Quote it: `".\src\tscm[all]"`. |
 | Phone cannot reach the URL | Windows Firewall. Allow the app on **Private** networks, and confirm the phone is on the same Wi-Fi (not cellular). |
 | Output is full of `←[38;5;46m` | Legacy console without ANSI. Use Windows Terminal, or add `--no-color`. |
 | QR code looks like noise | Same cause. Windows Terminal renders it correctly; `--no-qr` prints just the URL. |
 | `doctor` shows Bluetooth Classic unavailable | Confirm the Bluetooth radio is on; then read the caveat above — Windows cannot do an active inquiry regardless. |
 | No BLE devices at all | `pip install bleak`, and check Bluetooth is enabled in Windows Settings. |
+| `pip` times out mid-install | A slow index, not your setup. Re-run the install command — pip resumes from cache. If only the `--upgrade pip` step failed, ignore it and carry on. |
+| Install fails on `[all]` | Fall back to the core, which needs nothing: `.\.venv\Scripts\python.exe -m pip install -e ".\src\tscm"`. You lose better BLE and probe support, not the tool. |
