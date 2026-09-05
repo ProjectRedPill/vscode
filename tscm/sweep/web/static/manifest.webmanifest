@@ -1,0 +1,19 @@
+{
+  "name": "sweep — counter-surveillance sweep",
+  "short_name": "sweep",
+  "description": "Passive multi-band device discovery: BLE, Bluetooth Classic, Wi-Fi, sub-GHz, RF and infrared.",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "orientation": "any",
+  "background_color": "#0b0f14",
+  "theme_color": "#0b0f14",
+  "icons": [
+    {
+      "src": "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 192 192'%3E%3Crect width='192' height='192' rx='42' fill='%230b0f14'/%3E%3Cg fill='none' stroke='%2335d0ba' stroke-width='9' stroke-linecap='round'%3E%3Ccircle cx='96' cy='120' r='9' fill='%2335d0ba' stroke='none'/%3E%3Cpath d='M70 96a36 36 0 0 1 52 0'/%3E%3Cpath d='M52 74a62 62 0 0 1 88 0'/%3E%3Cpath d='M34 52a88 88 0 0 1 124 0'/%3E%3C/g%3E%3C/svg%3E",
+      "sizes": "192x192",
+      "type": "image/svg+xml",
+      "purpose": "any"
+    }
+  ]
+}
