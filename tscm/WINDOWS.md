@@ -65,10 +65,8 @@ Clone. `--depth 1` matters — this lives inside a fork of VS Code whose full
 history is enormous, and shallow cloning takes it from many minutes to about one:
 
 ```powershell
-git clone --depth 1 -b claude/spy-device-detection-563yo0 https://github.com/ProjectRedPill/vscode.git src
+git clone --depth 1 https://github.com/ProjectRedPill/vscode.git src
 ```
-
-Once the branch is merged, use `-b main` instead.
 
 Create the environment and install:
 
@@ -100,7 +98,7 @@ The script lives *inside* the repo, so it cannot do the very first clone for
 you — do the manual steps above once, then this handles every rebuild:
 
 ```powershell
-.\src\tscm\scripts\deploy-windows.ps1 -InstallDir "$HOME\.cursor\sweep" -Branch claude/spy-device-detection-563yo0
+.\src\tscm\scripts\deploy-windows.ps1 -InstallDir "$HOME\.cursor\sweep"
 ```
 
 It updates the clone, rebuilds the environment, reinstalls, rewrites the
