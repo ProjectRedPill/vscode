@@ -52,6 +52,27 @@ def check(label: str, condition: bool, detail: str = "") -> None:
         failures.append(label)
 
 
+# `sweep` emits UTF-8 on every platform. Reading it back needs saying so
+# explicitly: `text=True` alone decodes with the *locale* codec, which on
+# Windows is cp1252, and the first ● in the output then raises
+# UnicodeDecodeError inside subprocess's reader thread — which leaves
+# `.stdout` as None and turns every later check into a TypeError. The child
+# was right and this harness was wrong, both times in the same run.
+TEXT = {"encoding": "utf-8", "errors": "replace"}
+
+
+def run_sweep(args: list[str], env: dict[str, str],
+              timeout: int = 120) -> subprocess.CompletedProcess[str]:
+    proc = subprocess.run(
+        ["sweep", "--no-color", *args],
+        capture_output=True, text=True, timeout=timeout, env=env, **TEXT,
+    )
+    # Belt and braces: anything that leaves a stream as None must become a
+    # failed check with a readable reason, never a TypeError three lines later.
+    return subprocess.CompletedProcess(
+        proc.args, proc.returncode, proc.stdout or "", proc.stderr or "")
+
+
 def get(path: str, timeout: float = 10.0) -> tuple[int, str]:
     """Status and body, or (0, reason) — never an exception.
 
@@ -68,6 +89,14 @@ def get(path: str, timeout: float = 10.0) -> tuple[int, str]:
 
 
 def main() -> int:
+    # This script prints em dashes and reports on glyphs; give its own output
+    # the same treatment the tool gives its own, for the same reason.
+    for stream in (sys.stdout, sys.stderr):
+        try:
+            stream.reconfigure(encoding="utf-8", errors="replace")  # type: ignore[union-attr]
+        except Exception:
+            pass
+
     home = Path(tempfile.mkdtemp(prefix="sweep-smoke-"))
     env = dict(os.environ, SWEEP_HOME=str(home))
 
@@ -77,10 +106,7 @@ def main() -> int:
     # ---- 1. doctor, on the *default* database path -------------------------
     # No --db here. That is the point: this is the call that a first-time user
     # makes, and the one that the NameError above broke.
-    doctor = subprocess.run(
-        ["sweep", "--no-color", "doctor"],
-        capture_output=True, text=True, timeout=120, env=env,
-    )
+    doctor = run_sweep(["doctor"], env)
     print("\n$ sweep doctor")
     # Exit 2 means "nothing on this machine can sense anything", which is a
     # true answer on a CI runner with no radios and the whole point of having
@@ -109,19 +135,14 @@ def main() -> int:
           f"nothing at {home / 'sweep.db'}")
 
     # ---- 3. hwscan ---------------------------------------------------------
-    hw = subprocess.run(
-        ["sweep", "--no-color", "hwscan"],
-        capture_output=True, text=True, timeout=120, env=env,
-    )
+    hw = run_sweep(["hwscan"], env)
     print("\n$ sweep hwscan")
     check("hwscan exits 0", hw.returncode == 0, hw.stderr.strip()[-400:])
     check("hwscan does not traceback", "Traceback" not in hw.stderr)
 
     # ---- 4. a real (if short) sweep, and a machine-readable report ---------
-    run = subprocess.run(
-        ["sweep", "--no-color", "--json", "sweep", "--duration", "4", "--quiet"],
-        capture_output=True, text=True, timeout=180, env=env,
-    )
+    run = run_sweep(["--json", "sweep", "--duration", "4", "--quiet"],
+                    env, timeout=180)
     print("\n$ sweep --json sweep --duration 4")
     # A sweep with no usable band refuses to run and says so: a sweep that
     # senses nothing would be a false all-clear. On such a machine there is no
@@ -153,6 +174,7 @@ def main() -> int:
         ["sweep", "--no-color", "serve", "--port", str(PORT),
          "--no-qr", "--duration", "60"],
         stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, env=env,
+        **TEXT,
     )
     try:
         status, body = 0, ""
