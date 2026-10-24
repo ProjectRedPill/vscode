@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import os
 import shutil
+import sys
 
 RESET = "\033[0m"
 BOLD = "\033[1m"
@@ -69,6 +70,36 @@ def _enable_windows_vt() -> bool:
             handle, mode.value | ENABLE_VIRTUAL_TERMINAL_PROCESSING))
     except Exception:
         return False
+
+
+def ensure_unicode_output() -> None:
+    """Make stdout and stderr able to carry the glyphs this UI prints.
+
+    Python picks the *locale* encoding for a redirected stream, and on Windows
+    that is still a legacy code page — cp1252 on an English install. The band
+    markers (● ✔ ·), the signal bars and the QR code all sit outside it, so
+    anything that is not a console died with UnicodeEncodeError before printing
+    a single band:
+
+        sweep doctor > out.txt
+        sweep doctor | more
+        anything that captures output — a log file, a scheduled task, CI
+
+    `--no-color` did not help, because the problem is the glyphs and not the
+    escape codes. Found by the Windows smoke job, where every command's stdout
+    is a pipe.
+
+    `errors="replace"` is the belt and braces: a glyph some future console
+    cannot take should degrade to `?`, never take down a sweep in progress.
+    """
+    for stream in (sys.stdout, sys.stderr):
+        reconfigure = getattr(stream, "reconfigure", None)
+        if reconfigure is None:      # pytest's capture, a plain StringIO, …
+            continue
+        try:
+            reconfigure(encoding="utf-8", errors="replace")
+        except (ValueError, OSError):
+            pass
 
 
 def supports_color() -> bool:

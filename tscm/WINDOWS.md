@@ -275,6 +275,8 @@ machine. Override with `--db` or the `SWEEP_HOME` environment variable.
 | `pip install -e .\src\tscm[all]` matches nothing | PowerShell treats `[ ]` as wildcards. Quote it: `".\src\tscm[all]"`. |
 | Phone cannot reach the URL | Windows Firewall. Allow the app on **Private** networks, and confirm the phone is on the same Wi-Fi (not cellular). |
 | Output is full of `←[38;5;46m` | Legacy console without ANSI. Use Windows Terminal, or add `--no-color`. |
+| `UnicodeEncodeError: 'charmap' codec can't encode character '●'` | Fixed — `git pull`. Redirecting or piping output (`sweep doctor > out.txt`, `\| more`, a log file, anything that captures) used to crash, because Windows gives a pipe the legacy cp1252 code page and the UI is built from `● ○ ✔`. `sweep` now forces UTF-8 on its own output. |
+| `doctor` exits with code 2 | Not an error: it means no band on this machine can sense anything. Useful in a script — `sweep doctor; if ($LASTEXITCODE -eq 2) { ... }`. |
 | QR code looks like noise | Same cause. Windows Terminal renders it correctly; `--no-qr` prints just the URL. |
 | `doctor` shows Bluetooth Classic unavailable | Confirm the Bluetooth radio is on; then read the caveat above — Windows cannot do an active inquiry regardless. |
 | No BLE devices at all | `pip install bleak`, and check Bluetooth is enabled in Windows Settings. |

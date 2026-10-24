@@ -323,6 +323,11 @@ on upstream VS Code commits:
 | **Smoke** | `scripts/smoke.py` on all three platforms: `doctor` on the *default* database path, a real timed sweep, a JSON report, then the web UI over HTTP including every static asset. No hardware needed. |
 | **Package** | Builds the wheel, checks its contents with `scripts/check_wheel.py`, installs it into a clean virtualenv and runs the smoke test against *that*. |
 
+Two exit codes matter in scripts: `doctor` and `sweep` return **2** when no
+band on the machine can sense anything — a sweep that senses nothing would be
+a false all-clear, so it refuses rather than reporting one. The CI jobs treat
+exit 2 as a true answer about the runner, and only a crash as a failure.
+
 The smoke job is the important one. The unit suite is green on a machine with
 no radios, and the two worst defects in this tool's history were invisible to
 it: a Wi-Fi sensor that returned an un-awaited coroutine (dead band, 129 green

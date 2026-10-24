@@ -277,13 +277,20 @@ async def cmd_find(args: argparse.Namespace, painter: Painter) -> int:
     return 0
 
 
+def chatter_stream(args: argparse.Namespace) -> Any:
+    """Where progress output goes, so it never corrupts a report.
+
+    When a JSON report is bound for stdout, everything else has to go to
+    stderr — otherwise `sweep --json sweep > report.json` writes a file that
+    starts with the probe banner and parses as nothing at all.
+    """
+    json_to_stdout = getattr(args, "json", False) and not getattr(args, "out", None)
+    return sys.stderr if json_to_stdout else sys.stdout
+
+
 async def cmd_sweep(args: argparse.Namespace, painter: Painter) -> int:
     engine = Engine(engine_config(args))
-
-    # When a JSON report is going to stdout, everything else has to go to
-    # stderr — otherwise `sweep --json sweep > report.json` produces a file
-    # that starts with the probe banner and parses as nothing at all.
-    chatter = sys.stderr if (args.json and not args.out) else sys.stdout
+    chatter = chatter_stream(args)
 
     statuses = await engine.probe()
     _print_probe(statuses, painter, stream=chatter)
@@ -767,6 +774,11 @@ def _closing_summary(engine: Engine, painter: Painter) -> str:
 
 
 def main(argv: list[str] | None = None) -> int:
+    # Before anything prints: this UI is made of ● ✔ · and block characters,
+    # and a redirected stream on Windows defaults to a legacy code page that
+    # cannot encode them.
+    render.ensure_unicode_output()
+
     parser = build_parser()
     args = parser.parse_args(argv)
     painter = Painter(False if args.no_color else None)

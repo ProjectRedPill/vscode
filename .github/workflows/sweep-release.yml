@@ -110,7 +110,7 @@ jobs:
         run: |
           python -m pip install --upgrade pip
           python -m pip install "$(ls dist/*.whl)[all]"
-          sweep --no-color doctor
+          sweep --no-color doctor || [ $? -eq 2 ]   # 2 == this runner is blind
           python scripts/smoke.py
 
   release:

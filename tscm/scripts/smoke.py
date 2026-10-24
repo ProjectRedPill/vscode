@@ -53,11 +53,18 @@ def check(label: str, condition: bool, detail: str = "") -> None:
 
 
 def get(path: str, timeout: float = 10.0) -> tuple[int, str]:
+    """Status and body, or (0, reason) — never an exception.
+
+    A refused connection has to be a failed *check*, not a crash: when the
+    server dies early, the remaining checks are the ones that say so.
+    """
     try:
         with urllib.request.urlopen(BASE + path, timeout=timeout) as resp:
             return resp.status, resp.read().decode("utf-8", "replace")
     except urllib.error.HTTPError as exc:
         return exc.code, exc.read().decode("utf-8", "replace")
+    except Exception as exc:
+        return 0, f"{type(exc).__name__}: {exc}"
 
 
 def main() -> int:
@@ -75,13 +82,27 @@ def main() -> int:
         capture_output=True, text=True, timeout=120, env=env,
     )
     print("\n$ sweep doctor")
-    check("doctor exits 0", doctor.returncode == 0, doctor.stderr.strip()[-400:])
+    # Exit 2 means "nothing on this machine can sense anything", which is a
+    # true answer on a CI runner with no radios and the whole point of having
+    # an exit code. A crash is the failure, not an honest refusal.
+    check("doctor exits 0, or 2 when the machine is blind",
+          doctor.returncode in (0, 2), f"exit {doctor.returncode}")
     check("doctor names this host", "Host:" in doctor.stdout)
     check(
         "doctor reports at least one band either way",
         "sensing" in doctor.stdout or "not available" in doctor.stdout,
     )
     check("doctor does not traceback", "Traceback" not in doctor.stderr)
+    # The UI is built from ● ○ ✔ · ─ →, none of which a Windows pipe's legacy
+    # code page can encode — that combination used to raise UnicodeEncodeError
+    # before a single band printed. Any non-ASCII arriving here proves the
+    # console setup ran; which glyphs appear depends on what this machine has.
+    check("doctor's non-ASCII glyphs survived the pipe",
+          any(ord(ch) > 127 for ch in doctor.stdout),
+          "output was pure ASCII — did the encoding silently fall back?")
+    blind = doctor.returncode == 2
+    if blind:
+        print("  note  this machine senses nothing; coverage checks are the point")
 
     # ---- 2. the database was actually created where it was asked to be -----
     check("default database honours SWEEP_HOME", (home / "sweep.db").exists(),
@@ -102,17 +123,28 @@ def main() -> int:
         capture_output=True, text=True, timeout=180, env=env,
     )
     print("\n$ sweep --json sweep --duration 4")
-    check("sweep exits 0", run.returncode == 0, run.stderr.strip()[-400:])
-    report: dict = {}
-    try:
-        report = json.loads(run.stdout)
-        check("sweep emits valid JSON", True)
-    except json.JSONDecodeError as exc:
-        check("sweep emits valid JSON", False, str(exc))
-    if report:
-        for key in ("session", "coverage", "devices", "stats"):
-            check(f"report has '{key}'", key in report)
-        check("report states its own coverage", bool(report.get("coverage")))
+    # A sweep with no usable band refuses to run and says so: a sweep that
+    # senses nothing would be a false all-clear. On such a machine there is no
+    # report to parse, and that is the correct outcome, not a failure.
+    if blind:
+        check("a blind sweep refuses rather than reporting an all-clear",
+              run.returncode == 2, f"exit {run.returncode}")
+        check("and says why on stderr, leaving stdout clean",
+              "No sensors are usable" in (run.stdout + run.stderr))
+    else:
+        check("sweep exits 0", run.returncode == 0, run.stderr.strip()[-400:])
+        report: dict = {}
+        try:
+            report = json.loads(run.stdout)
+            check("sweep emits valid JSON on stdout alone", True)
+        except json.JSONDecodeError as exc:
+            # Regression: the probe banner and progress line used to go to
+            # stdout ahead of the report, so `> report.json` parsed as nothing.
+            check("sweep emits valid JSON on stdout alone", False, str(exc))
+        if report:
+            for key in ("session", "coverage", "devices", "stats"):
+                check(f"report has '{key}'", key in report)
+            check("report states its own coverage", bool(report.get("coverage")))
 
     # ---- 5. the web UI, served and fetched over real HTTP ------------------
     # Loopback is treated as the host, so no token is needed here.

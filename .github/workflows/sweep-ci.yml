@@ -109,9 +109,13 @@ jobs:
       - run: python -m pip install -e "." pytest pytest-asyncio
       - run: python -m pytest tests/ -q
       - name: The CLI still starts without optional dependencies
+        # `doctor` exits 2 when no band on this machine can sense anything,
+        # which is true of a bare runner and is the exit code doing its job.
+        # Only a crash is a failure here.
         run: |
           python -m sweep --help
-          SWEEP_HOME="$RUNNER_TEMP/sweep-core" python -m sweep --no-color doctor
+          SWEEP_HOME="$RUNNER_TEMP/sweep-core" python -m sweep --no-color doctor \
+            || [ $? -eq 2 ]
 
   browser:
     name: Full suite — nothing skipped
@@ -195,8 +199,9 @@ jobs:
           python -m venv "$RUNNER_TEMP/clean"
           "$RUNNER_TEMP/clean/bin/python" -m pip install --upgrade pip
           "$RUNNER_TEMP/clean/bin/python" -m pip install dist/*.whl
-          PATH="$RUNNER_TEMP/clean/bin:$PATH" sweep --no-color doctor
-          PATH="$RUNNER_TEMP/clean/bin:$PATH" python scripts/smoke.py
+          export PATH="$RUNNER_TEMP/clean/bin:$PATH"
+          sweep --no-color doctor || [ $? -eq 2 ]   # 2 == this runner is blind
+          python scripts/smoke.py
       - uses: actions/upload-artifact@v4
         with:
           name: sweep-dist
