@@ -18,7 +18,7 @@ from typing import Any
 from ..sensors import Sensor, SensorStatus, build
 from ..threat import SweepContext, evaluate
 from .fusion import Fusion, FusionConfig
-from .models import Band, Device, Finding, Observation, Trust
+from .models import Device, Finding, Observation, Trust
 from .rssi import Ranger
 from .store import Store
 

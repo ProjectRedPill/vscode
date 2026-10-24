@@ -97,7 +97,10 @@ class RfPowerSensor(Sensor):
         freq = _as_float(rec.get("freq"))
         # Slowly-tracked floor: this is a hand-held instrument and the ambient
         # level changes as you walk, so the floor has to follow you.
-        self._baseline = dbm if self._baseline is None else min(self._baseline * 0.98 + dbm * 0.02, dbm)
+        if self._baseline is None:
+            self._baseline = dbm
+        else:
+            self._baseline = min(self._baseline * 0.98 + dbm * 0.02, dbm)
         excess = dbm - self._baseline
 
         attrs: dict[str, Any] = {

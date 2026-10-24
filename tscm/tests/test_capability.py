@@ -9,7 +9,6 @@ from sweep.core.engine import Engine, EngineConfig
 from sweep.core.models import Band
 from sweep.sensors import ALL_SENSORS
 
-
 # ---------------------------------------------------------------------------
 # Catalogue integrity
 # ---------------------------------------------------------------------------
@@ -174,8 +173,11 @@ def test_render_produces_lines_and_respects_no_color():
 
 
 # A real decode is the only test that proves a phone could scan this.
-cv2 = pytest.importorskip("cv2", reason="opencv not installed")
-np = pytest.importorskip("numpy")
+#
+# The import check belongs *inside* the test, not at module level: at module
+# level `importorskip` raises during collection and takes the whole file with
+# it, so a machine without OpenCV silently lost all 24 tests in this file and
+# the summary said "1 skipped".
 
 
 @pytest.mark.parametrize("text,level", [
@@ -187,6 +189,9 @@ np = pytest.importorskip("numpy")
     ("x" * 130, "L"),
 ])
 def test_generated_codes_decode_back_to_the_input(text, level):
+    cv2 = pytest.importorskip("cv2", reason="opencv not installed")
+    np = pytest.importorskip("numpy")
+
     matrix = qr.encode(text, level)
     size = len(matrix)
     quiet, scale = 4, 8

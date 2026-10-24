@@ -131,10 +131,10 @@ class BtClassicSensor(Sensor):
     async def _scan_bluetoothctl(self) -> list[Observation]:
         # `--timeout` makes bluetoothctl exit on its own, which keeps this a
         # simple request/response instead of a stream we have to babysit.
-        rc, out, _ = await self.run_cmd(
+        _rc, out, _ = await self.run_cmd(
             ["bluetoothctl", "--timeout", "10", "scan", "on"], timeout=20
         )
-        rc2, devices, _ = await self.run_cmd(["bluetoothctl", "devices"], timeout=10)
+        _rc2, devices, _ = await self.run_cmd(["bluetoothctl", "devices"], timeout=10)
         text = out + "\n" + devices
         seen: dict[str, str] = {}
         for line in text.splitlines():

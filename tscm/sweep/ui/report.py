@@ -60,7 +60,8 @@ def markdown_report(engine: Engine, *, include_all: bool = False) -> str:
     add(f"- **Session** `{engine.session}`")
     add(f"- **Started** {time.strftime('%Y-%m-%d %H:%M:%S', time.localtime(engine.started))}")
     add(f"- **Duration** {snap['elapsed_s'] / 60:.1f} min across {snap['epoch'] + 1} location(s)")
-    add(f"- **Devices** {snap['stats']['devices']} seen, {snap['stats']['present']} present at the end")
+    add(f"- **Devices** {snap['stats']['devices']} seen, "
+        f"{snap['stats']['present']} present at the end")
     add(f"- **Packets** {snap['stats']['observations']:,}")
     if snap["dropped_observations"]:
         add(f"- **Dropped** {snap['dropped_observations']:,} observations "

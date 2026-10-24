@@ -1,0 +1,192 @@
+# CD for the `tscm/` subtree (the `sweep` counter-surveillance tool).
+#
+# Triggered by a tag of the form `sweep-v*` — namespaced because this is a fork
+# of VS Code and plain `v*` tags belong to upstream. Tagging is the whole
+# release interface:
+#
+#     cd tscm
+#     git tag sweep-v0.1.0
+#     git push origin sweep-v0.1.0
+#
+# The job rebuilds from the tag, re-verifies the wheel's contents, installs it
+# into a clean environment on all three operating systems, runs the smoke test
+# against that installed copy, and only then publishes a GitHub Release with
+# the artifacts attached. Nothing is published that has not been installed and
+# run first.
+#
+# Deliberately not here: publishing to PyPI. That needs a decision about the
+# package name and either a token or a configured Trusted Publisher, neither of
+# which should be invented on someone's behalf. See the commented job at the
+# bottom for how to turn it on.
+
+name: sweep Release
+
+on:
+  push:
+    tags:
+      - 'sweep-v*'
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: 'Tag or ref to build (defaults to the current ref)'
+        required: false
+        type: string
+
+permissions:
+  contents: read
+
+defaults:
+  run:
+    shell: bash
+    working-directory: tscm
+
+jobs:
+  build:
+    name: Build distributions
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.ref || github.ref }}
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: python -m pip install build twine
+      - run: python -m build
+      - run: python -m twine check dist/*
+      - run: python scripts/check_wheel.py dist/*.whl
+      - name: Read the version out of the built wheel
+        id: version
+        run: |
+          wheel=$(ls dist/*.whl)
+          version=$(basename "$wheel" | cut -d- -f2)
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "built sweep $version"
+      - name: The tag must match the version in pyproject.toml
+        # A release tagged sweep-v0.2.0 that ships 0.1.0 artifacts is worse
+        # than a failed release, because it is silent.
+        if: startsWith(github.ref, 'refs/tags/sweep-v')
+        run: |
+          tag="${GITHUB_REF#refs/tags/sweep-v}"
+          built="${{ steps.version.outputs.version }}"
+          if [ "$tag" != "$built" ]; then
+            echo "::error::tag sweep-v$tag does not match built version $built"
+            echo 'Bump the version in tscm/pyproject.toml, or retag.'
+            exit 1
+          fi
+      - uses: actions/upload-artifact@v4
+        with:
+          name: sweep-dist
+          path: tscm/dist/*
+          if-no-files-found: error
+
+  verify:
+    name: Install and run on ${{ matrix.os }}
+    needs: build
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.ref || github.ref }}
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: actions/download-artifact@v4
+        with:
+          name: sweep-dist
+          path: tscm/dist
+      # Installs the artifact that is about to be published — not the
+      # checkout. This is the step that would have caught a wheel missing its
+      # web assets, which installs and starts cleanly and then serves nothing.
+      - name: Install the wheel and smoke-test it
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install "$(ls dist/*.whl)[all]"
+          sweep --no-color doctor
+          python scripts/smoke.py
+
+  release:
+    name: Publish the GitHub Release
+    needs: [build, verify]
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    if: startsWith(github.ref, 'refs/tags/sweep-v')
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: sweep-dist
+          path: tscm/dist
+      - name: Create the release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          VERSION: ${{ needs.build.outputs.version }}
+        run: |
+          notes="$RUNNER_TEMP/notes.md"
+          {
+            echo "## sweep $VERSION"
+            echo
+            echo "Passive multi-band counter-surveillance sweep — BLE, Bluetooth"
+            echo "Classic, Wi-Fi, sub-GHz ISM, broadband RF and infrared."
+            echo "Receive-only: it never connects, pairs, transmits or jams."
+            echo
+            echo "### Install"
+            echo
+            echo '```'
+            echo "pip install sweep_tscm-$VERSION-py3-none-any.whl"
+            echo "sweep doctor      # what this machine can actually sense"
+            echo "sweep serve --open"
+            echo '```'
+            echo
+            echo "Windows users: see \`tscm/WINDOWS.md\` for the PowerShell steps"
+            echo "and what Windows cannot do (no unprivileged BR/EDR inquiry)."
+            echo
+            echo "### Verified before publishing"
+            echo
+            echo "- wheel contents checked (the web UI ships as package data)"
+            echo "- installed into a clean environment and run on Linux, Windows and macOS"
+            echo "- end-to-end smoke test against the installed console script"
+          } > "$notes"
+          gh release create "$GITHUB_REF_NAME" \
+            --title "sweep $VERSION" \
+            --notes-file "$notes" \
+            --repo "$GITHUB_REPOSITORY" \
+            dist/*
+
+# ---------------------------------------------------------------------------
+# Publishing to PyPI — not enabled.
+#
+# `sweep` is a common name and `sweep-tscm` is the distribution name chosen
+# here; before publishing, confirm it is free and that you want this tool on a
+# public index at all. Trusted Publishing (OIDC, no stored token) is the right
+# mechanism: configure the publisher on PyPI for this repository and workflow,
+# then add:
+#
+#   pypi:
+#     name: Publish to PyPI
+#     needs: [build, verify]
+#     runs-on: ubuntu-latest
+#     if: startsWith(github.ref, 'refs/tags/sweep-v')
+#     environment: pypi
+#     permissions:
+#       id-token: write
+#     steps:
+#       - uses: actions/download-artifact@v4
+#         with:
+#           name: sweep-dist
+#           path: dist
+#       - uses: pypa/gh-action-pypi-publish@release/v1
+#
+# Note that job must NOT inherit `working-directory: tscm`, since it does not
+# check the repository out.
+# ---------------------------------------------------------------------------

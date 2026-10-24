@@ -27,7 +27,7 @@ class KalmanRssi:
     tracks motion faster at the cost of jitter.
     """
 
-    __slots__ = ("q", "r", "_x", "_p")
+    __slots__ = ("_p", "_x", "q", "r")
 
     def __init__(self, q: float = 0.12, r: float = 9.0) -> None:
         self.q = q
@@ -135,7 +135,9 @@ class Ranger:
         if self._samples and self._samples[0][0] < cutoff:
             self._samples = [s for s in self._samples if s[0] >= cutoff]
 
-    def _mean(self, now: float, window: float, *, exclude_recent: float = 0.0) -> tuple[float | None, int]:
+    def _mean(
+        self, now: float, window: float, *, exclude_recent: float = 0.0
+    ) -> tuple[float | None, int]:
         lo = now - window
         hi = now - exclude_recent
         vals = [v for ts, v in self._samples if lo <= ts <= hi]

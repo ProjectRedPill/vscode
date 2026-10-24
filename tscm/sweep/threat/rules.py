@@ -20,8 +20,8 @@ just Find My.
 from __future__ import annotations
 
 import time
+from collections.abc import Callable
 from dataclasses import dataclass, field
-from typing import Any, Callable
 
 from ..core.models import Band, Device, DeviceClass, Finding, Trust
 
@@ -420,7 +420,7 @@ def evaluate(dev: Device, ctx: SweepContext) -> list[Finding]:
         return []
 
     out: list[Finding] = []
-    for name, fn in RULES:
+    for _name, fn in RULES:
         try:
             finding = fn(dev, ctx)
         except Exception:

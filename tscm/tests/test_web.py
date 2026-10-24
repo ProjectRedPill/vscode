@@ -313,7 +313,7 @@ async def test_oversized_body_is_refused(served):
 async def test_range_and_state_use_separate_cadences(served):
     """The finder needs ~2 Hz; the device list does not. Pushing the whole list
     at the finder's rate cost ~65 KiB/s per client in a busy room."""
-    engine, server, client = served
+    engine, server, _client = served
     server.push_interval = 0.05
     server.state_interval = 10.0     # far beyond the window we sample
 

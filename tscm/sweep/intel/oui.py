@@ -107,7 +107,8 @@ class AddrType(str, Enum):
         return {
             AddrType.PUBLIC: "permanent hardware address — trackable across sessions",
             AddrType.RANDOM_STATIC: "stable until the device reboots",
-            AddrType.RESOLVABLE_PRIVATE: "rotates ~every 15 min; identity hidden without pairing key",
+            AddrType.RESOLVABLE_PRIVATE:
+                "rotates ~every 15 min; identity hidden without pairing key",
             AddrType.NON_RESOLVABLE: "rotates and is deliberately unlinkable",
             AddrType.LOCALLY_ADMIN: "software-assigned (Wi-Fi MAC randomisation)",
             AddrType.UNKNOWN: "address type could not be determined",

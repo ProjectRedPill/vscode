@@ -76,7 +76,7 @@ class Rtl433Sensor(Sensor):
     async def available(self) -> tuple[bool, str]:
         if not self.which("rtl_433"):
             return False, "rtl_433 not on PATH"
-        rc, out, err = await self.run_cmd(["rtl_433", "-h"], timeout=8)
+        _rc, out, err = await self.run_cmd(["rtl_433", "-h"], timeout=8)
         # rtl_433 -h exits non-zero on some builds; presence of usage text is
         # the reliable signal.
         if "rtl_433" not in (out + err).lower():
@@ -135,7 +135,8 @@ class Rtl433Sensor(Sensor):
         low = model.lower()
         if any(k in low for k in ("tpms", "tire")):
             attrs["device_class"] = "sensor"
-            attrs["note"] = "tyre pressure sensor — moves with a vehicle, useful for spotting a following car"
+            attrs["note"] = ("tyre pressure sensor — moves with a vehicle, "
+                             "useful for spotting a following car")
         elif any(k in low for k in ("door", "contact", "pir", "motion", "security")):
             attrs["device_class"] = "sensor"
             attrs["note"] = "security sensor — part of an alarm or monitoring system"

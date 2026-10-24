@@ -285,18 +285,72 @@ counter-surveillance law varies enormously by country; know yours.
 ## Development
 
 ```bash
-pip install -e '.[dev]'
-python -m pytest tests/ -q
+pip install -e '.[all,dev]'
+python -m pytest tests/ -q          # 161 tests, no radio hardware required
+ruff check .                        # rules are pinned in pyproject.toml
+python scripts/smoke.py             # drives the installed CLI end to end
 ```
 
-174 tests, no radio hardware required. The decoding layer (`intel/`) is pure
-functions over bytes and is fully covered; `tests/test_engine.py` drives the
-real engine end to end through a scripted fake sensor; `tests/test_web.py`
-exercises the HTTP and SSE surface over real TCP; `tests/test_web_ui.py` drives
-the UI in Chromium at phone and desktop viewports and is skipped automatically
-when Playwright is not installed; `tests/test_sensors.py` feeds the subprocess
-parsers realistic captured `nmcli` / `iw` / `netsh` / `bluetoothctl` output,
-which is where the Wi-Fi sensor's first real bug was hiding.
+The decoding layer (`intel/`) is pure functions over bytes and is fully
+covered; `tests/test_engine.py` drives the real engine end to end through a
+scripted fake sensor; `tests/test_web.py` exercises the HTTP and SSE surface
+over real TCP; `tests/test_web_ui.py` drives the UI in Chromium at phone and
+desktop viewports; `tests/test_sensors.py` feeds the subprocess parsers
+realistic captured `nmcli` / `iw` / `netsh` / `bluetoothctl` output, which is
+where the Wi-Fi sensor's first real bug was hiding.
+
+Some tests skip themselves when their tooling is absent — `test_web_ui.py`
+without Playwright, the QR decode tests without OpenCV. That is right locally
+and a hole in CI, so one CI job installs both and fails if those tests skip
+anyway.
+
+Keep such a check *inside* the test, never at module level: an
+`importorskip` at module scope raises during collection and takes the whole
+file with it. That had quietly cost all 24 tests in `test_capability.py` on
+every machine without OpenCV, while the summary read "1 skipped".
+
+### What CI checks, and why
+
+`.github/workflows/sweep-ci.yml`, path-scoped to `tscm/**` so it does not fire
+on upstream VS Code commits:
+
+| Job | What it is defending against |
+|---|---|
+| **Lint** | ruff, pinned to an exact version, rules listed in `pyproject.toml`. It found a missing `import sys` that broke the first run on any machine. |
+| **Tests** | Linux 3.10–3.13, Windows 3.10/3.12, macOS 3.12. Every platform-specific sensor backend is a text parser, and both parser bugs that reached a user were Windows-only. |
+| **No optional dependencies** | The core is documented as running on the standard library alone. This job is what keeps that true. |
+| **Full suite** | Playwright and OpenCV installed; fails if any test skips. |
+| **Smoke** | `scripts/smoke.py` on all three platforms: `doctor` on the *default* database path, a real timed sweep, a JSON report, then the web UI over HTTP including every static asset. No hardware needed. |
+| **Package** | Builds the wheel, checks its contents with `scripts/check_wheel.py`, installs it into a clean virtualenv and runs the smoke test against *that*. |
+
+The smoke job is the important one. The unit suite is green on a machine with
+no radios, and the two worst defects in this tool's history were invisible to
+it: a Wi-Fi sensor that returned an un-awaited coroutine (dead band, 129 green
+tests), and `default_path()` calling `sys.platform` with no `import sys` — a
+NameError on every first run, missed because every test passes an explicit
+database path. Both are the same shape: the paths a real user hits first are
+the ones the tests mock away. `smoke.py` runs the installed console script the
+way a person does.
+
+### Cutting a release
+
+`.github/workflows/sweep-release.yml` fires on a `sweep-v*` tag — namespaced
+because plain `v*` tags belong to upstream VS Code:
+
+```bash
+git tag sweep-v0.1.0
+git push origin sweep-v0.1.0
+```
+
+It rebuilds from the tag, refuses to continue if the tag and the version in
+`pyproject.toml` disagree, verifies the wheel's contents, installs it into a
+clean environment on Linux, Windows and macOS, runs the smoke test against the
+installed copy, and only then publishes a GitHub Release with the artifacts
+attached. Nothing is published that has not been installed and run first.
+
+PyPI publishing is written but deliberately left off — it needs a decision
+about the package name and a Trusted Publisher configured on PyPI. The
+commented job at the bottom of that workflow is the whole change.
 
 ### Adding a band
 
@@ -322,6 +376,9 @@ sweep/
                        shared by `doctor`, the report and the Coverage tab
   core/qr.py           dependency-free QR encoder for the phone join URL
 firmware/    ir_probe · rf_probe   (reference Arduino/ESP32 sketches)
+scripts/     smoke.py (end-to-end check of an installed sweep) ·
+             check_wheel.py (what the wheel must contain) ·
+             deploy-windows.ps1
 ```
 
 MIT licensed.

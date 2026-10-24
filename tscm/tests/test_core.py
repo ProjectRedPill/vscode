@@ -6,6 +6,7 @@ import time
 
 import pytest
 
+from sweep.core import store as store_mod
 from sweep.core.fusion import Fusion, FusionConfig
 from sweep.core.models import Band, DeviceClass, Observation, Trust
 from sweep.core.rssi import Heat, KalmanRssi, Ranger
@@ -386,3 +387,31 @@ def test_migration_dedupes_databases_from_before_the_unique_index(tmp_path):
         rows = store.history_for_address("AA:BB")
         assert len(rows) == 1
         assert rows[0]["packets"] == 5, "the newest (most complete) row survives"
+
+
+@pytest.mark.parametrize("plat", ["win32", "darwin", "linux"])
+def test_default_path_resolves_on_every_platform(monkeypatch, tmp_path, plat):
+    """Regression: `default_path()` used `sys.platform` without importing `sys`,
+    so a NameError hit anyone who ran sweep *without* `--db` or `SWEEP_HOME` —
+    which is every ordinary first run. Every test passed an explicit path, so
+    nothing noticed. This asserts the default path for all three platforms.
+    """
+    monkeypatch.delenv("SWEEP_HOME", raising=False)
+    monkeypatch.setattr(store_mod.sys, "platform", plat)
+    monkeypatch.setenv("LOCALAPPDATA", str(tmp_path / "AppData" / "Local"))
+    monkeypatch.setenv("XDG_DATA_HOME", str(tmp_path / "share"))
+
+    path = store_mod.default_path()
+    assert path.name == "sweep.db"
+    assert path.is_absolute()
+    if plat == "win32":
+        assert "AppData" in str(path)
+    elif plat == "darwin":
+        assert "Application Support" in str(path)
+    else:
+        assert str(path).startswith(str(tmp_path / "share"))
+
+
+def test_sweep_home_overrides_the_platform_default(monkeypatch, tmp_path):
+    monkeypatch.setenv("SWEEP_HOME", str(tmp_path / "elsewhere"))
+    assert store_mod.default_path() == tmp_path / "elsewhere" / "sweep.db"
