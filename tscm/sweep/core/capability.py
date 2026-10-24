@@ -20,7 +20,7 @@ from __future__ import annotations
 
 import platform
 import socket
-from dataclasses import asdict, dataclass, field
+from dataclasses import asdict, dataclass
 from typing import Any
 
 from .models import Band

@@ -74,8 +74,10 @@ async def read_serial(
     """
     try:
         import serial  # type: ignore[import-untyped]
-    except ImportError:
-        raise RuntimeError("pyserial is required for serial probes: pip install pyserial")
+    except ImportError as exc:
+        raise RuntimeError(
+            "pyserial is required for serial probes: pip install pyserial"
+        ) from exc
 
     import threading
 
@@ -131,7 +133,9 @@ async def read_file(path: str, stop: asyncio.Event) -> AsyncIterator[dict[str, A
     remote ESP32 over MQTT piped to a FIFO, or a recorded capture for testing.
     """
     loop = asyncio.get_running_loop()
-    handle = open(path, encoding="utf-8", errors="replace")  # noqa: SIM115
+    # Opening is the only blocking call; every read below goes through the
+    # executor, so the loop is not held while we wait on a FIFO.
+    handle = open(path, encoding="utf-8", errors="replace")  # noqa: ASYNC230
     try:
         while not stop.is_set():
             line = await loop.run_in_executor(None, handle.readline)

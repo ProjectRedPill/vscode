@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import time
 from collections.abc import AsyncIterator
+from typing import ClassVar
 
 import pytest
 
@@ -21,7 +22,7 @@ class FakeSensor(Sensor):
     name = "fake"
     band = Band.BLE
 
-    script: list[Observation] = []
+    script: ClassVar[list[Observation]] = []
 
     async def available(self) -> tuple[bool, str]:
         return True, "fake sensor"
@@ -32,7 +33,8 @@ class FakeSensor(Sensor):
                 return
             self._count()
             yield obs
-        while not stop.is_set():
+        # Mimics a polling sensor: the real ones idle exactly like this.
+        while not stop.is_set():   # noqa: ASYNC110
             await asyncio.sleep(0.05)
 
 

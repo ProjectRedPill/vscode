@@ -8,9 +8,8 @@ from __future__ import annotations
 
 import pytest
 
-from sweep.intel import ble, classify, oui, sig, signatures
 from sweep.core.models import Band, DeviceClass
-
+from sweep.intel import ble, classify, oui, sig, signatures
 
 # ---------------------------------------------------------------------------
 # MAC address typing — the field most scanners get wrong
@@ -128,7 +127,9 @@ def test_microsoft_cdp_reports_form_factor():
 
 
 def test_fast_pair_discoverable_gives_an_exact_model():
-    out = ble.parse_advertisement(service_data={"0000fe2c-0000-1000-8000-00805f9b34fb": bytes([0x00, 0xB7, 0x27])})
+    out = ble.parse_advertisement(service_data={
+        "0000fe2c-0000-1000-8000-00805f9b34fb": bytes([0x00, 0xB7, 0x27]),
+    })
     assert out["fast_pair_model_id"] == "0x00B727"
     assert out["model"] == "Sony WH-1000XM4"
 

@@ -165,8 +165,7 @@ def _encode_data(payload: bytes, version: int, level: str) -> list[int]:
 
 def _cycle(values: list[int]):
     while True:
-        for v in values:
-            yield v
+        yield from values
 
 
 def _interleave(codewords: list[int], version: int, level: str) -> list[int]:
@@ -336,9 +335,12 @@ def _place_format(m: list[list[int]], level: str, mask: int) -> None:
     positions_b = [(size - 1 - i, 8) for i in range(7)] + \
                   [(8, size - 8 + i) for i in range(8)]
 
-    for bit, (r, c) in zip(bits, positions_a):
+    # `strict` is an assertion, not a style choice: both copies must take
+    # exactly the 15 format bits. A short list here silently leaves modules
+    # unwritten and every scanner rejects the symbol.
+    for bit, (r, c) in zip(bits, positions_a, strict=True):
         m[r][c] = bit
-    for bit, (r, c) in zip(bits, positions_b):
+    for bit, (r, c) in zip(bits, positions_b, strict=True):
         m[r][c] = bit
 
 
@@ -347,7 +349,7 @@ def _penalty(m: list[list[int]]) -> int:
     score = 0
 
     # Rule 1: runs of five or more identical modules.
-    for line in list(m) + [list(col) for col in zip(*m)]:
+    for line in list(m) + [list(col) for col in zip(*m, strict=True)]:
         run, prev = 1, line[0]
         for value in line[1:]:
             if value == prev:
@@ -367,7 +369,7 @@ def _penalty(m: list[list[int]]) -> int:
 
     # Rule 3: finder-like 1:1:3:1:1 patterns.
     patterns = ([1, 0, 1, 1, 1, 0, 1, 0, 0, 0, 0], [0, 0, 0, 0, 1, 0, 1, 1, 1, 0, 1])
-    for line in list(m) + [list(col) for col in zip(*m)]:
+    for line in list(m) + [list(col) for col in zip(*m, strict=True)]:
         for i in range(size - 10):
             window = list(line[i:i + 11])
             if window in patterns:

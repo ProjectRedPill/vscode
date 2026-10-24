@@ -14,7 +14,6 @@ All three are asserted here.
 
 from __future__ import annotations
 
-import asyncio
 import os
 import shutil
 
@@ -22,11 +21,11 @@ import pytest
 
 pytest.importorskip("playwright.async_api", reason="playwright not installed")
 
-from playwright.async_api import async_playwright  # noqa: E402
+from playwright.async_api import async_playwright
 
-from sweep.core.engine import Engine, EngineConfig  # noqa: E402
-from sweep.core.models import Band, Observation  # noqa: E402
-from sweep.web.server import WebServer  # noqa: E402
+from sweep.core.engine import Engine, EngineConfig
+from sweep.core.models import Band, Observation
+from sweep.web.server import WebServer
 
 
 def _chromium() -> str | None:

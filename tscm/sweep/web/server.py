@@ -29,7 +29,7 @@ import mimetypes
 import secrets
 import time
 from pathlib import Path
-from typing import Any, Callable
+from typing import Any
 from urllib.parse import parse_qs, unquote, urlparse
 
 from ..core.engine import Engine, device_dict
@@ -299,7 +299,8 @@ class WebServer:
             )
             if device is None:
                 return 404, b'{"error":"no such device"}', "application/json"
-            return 200, _json({"ok": True, "device": device_dict(device, engine)}), "application/json"
+            return (200, _json({"ok": True, "device": device_dict(device, engine)}),
+                    "application/json")
 
         if action == "target":
             needle = payload.get("device")
@@ -315,8 +316,11 @@ class WebServer:
         if action == "env":
             from ..core.rssi import path_loss_env_factor
 
-            engine.ranger.env_factor = path_loss_env_factor(str(payload.get("env") or "office"))
-            return 200, _json({"ok": True, "env_factor": engine.ranger.env_factor}), "application/json"
+            engine.ranger.env_factor = path_loss_env_factor(
+                str(payload.get("env") or "office")
+            )
+            return (200, _json({"ok": True, "env_factor": engine.ranger.env_factor}),
+                    "application/json")
 
         if action == "stop":
             engine.stop.set()

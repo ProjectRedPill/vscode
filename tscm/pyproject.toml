@@ -1,5 +1,5 @@
 [build-system]
-requires = ["setuptools>=68"]
+requires = ["setuptools>=77"]
 build-backend = "setuptools.build_meta"
 
 [project]
@@ -8,7 +8,9 @@ version = "0.1.0"
 description = "Passive multi-band device discovery and counter-surveillance sweep (BLE, BT Classic, Wi-Fi, sub-GHz, RF, IR)"
 readme = "README.md"
 requires-python = ">=3.10"
-license = { text = "MIT" }
+# An SPDX string, not a TOML table: setuptools deprecated the table form and
+# stops supporting it in 2027, which would turn a release build red.
+license = "MIT"
 keywords = ["bluetooth", "ble", "wifi", "sdr", "tscm", "counter-surveillance", "rf", "infrared"]
 classifiers = [
     "Environment :: Console",
@@ -47,3 +49,23 @@ asyncio_mode = "auto"
 [tool.ruff]
 line-length = 100
 target-version = "py310"
+
+# Pinned explicitly rather than left to ruff's defaults, which widen between
+# releases — CI must fail for a reason in this list and no other, so that a
+# ruff upgrade is a deliberate change here and not a surprise red build.
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "UP", "B", "ASYNC", "C4", "PIE", "RUF"]
+ignore = [
+    # Sensor and parser code swallows exceptions on purpose: a probe that
+    # misbehaves must degrade to "band unavailable", never take down a sweep
+    # that is in progress. The blind excepts are the design, not an oversight.
+    "BLE001",
+    "S110",
+]
+
+[tool.ruff.lint.per-file-ignores]
+# Parser fixtures are verbatim captures of real tool output — `iw list` indents
+# with tabs. Normalising the whitespace would make the fixtures lie about what
+# the parsers actually receive.
+"tests/test_hardware.py" = ["E101", "W191"]
+"tests/test_sensors.py" = ["E101", "W191"]

@@ -163,7 +163,8 @@ def classify(
     if attrs.get("cod_minor") == "Microphone":
         offer("cod", DeviceClass.MICROPHONE, "Class of Device minor: microphone")
     if "Capturing" in (attrs.get("cod_services") or []):
-        offer("cod", DeviceClass.MICROPHONE, "advertises the Capturing service (audio/video capture)")
+        offer("cod", DeviceClass.MICROPHONE,
+              "advertises the Capturing service (audio/video capture)")
 
     # 5. GAP appearance — the device stating its own form factor.
     ap = attrs.get("appearance_name")

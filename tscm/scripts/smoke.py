@@ -1,0 +1,184 @@
+#!/usr/bin/env python3
+"""End-to-end smoke test of an *installed* sweep, on any platform.
+
+This exists because the unit suite is green on a machine with no radios at all,
+and two of the worst defects found while building sweep were invisible to it:
+
+  * the Wi-Fi sensor returned an un-awaited coroutine, so the band was dead on
+    every platform while 129 tests passed;
+  * `default_path()` used `sys.platform` without importing `sys`, so the very
+    first run of `sweep doctor` — with no `--db` and no `SWEEP_HOME` — raised
+    NameError. Every test passed an explicit database path, so nothing noticed.
+
+Both are the same class of bug: the code paths a real user hits first are the
+ones the tests mock away. So this drives the installed console script the way a
+person does, over HTTP, and asserts on the output.
+
+It is deliberately dependency-free (standard library only) and makes no
+assumptions about available hardware: a machine with no radios must still pass.
+Run it directly, or via `python -m` from anywhere:
+
+    python scripts/smoke.py
+
+Exit status is 0 only if every check passed.
+"""
+
+from __future__ import annotations
+
+import json
+import os
+import subprocess
+import sys
+import tempfile
+import time
+import urllib.error
+import urllib.request
+from pathlib import Path
+
+PORT = int(os.environ.get("SWEEP_SMOKE_PORT", "8799"))
+BASE = f"http://127.0.0.1:{PORT}"
+
+failures: list[str] = []
+checks = 0
+
+
+def check(label: str, condition: bool, detail: str = "") -> None:
+    global checks
+    checks += 1
+    if condition:
+        print(f"  ok    {label}")
+    else:
+        print(f"  FAIL  {label}{(' — ' + detail) if detail else ''}")
+        failures.append(label)
+
+
+def get(path: str, timeout: float = 10.0) -> tuple[int, str]:
+    try:
+        with urllib.request.urlopen(BASE + path, timeout=timeout) as resp:
+            return resp.status, resp.read().decode("utf-8", "replace")
+    except urllib.error.HTTPError as exc:
+        return exc.code, exc.read().decode("utf-8", "replace")
+
+
+def main() -> int:
+    home = Path(tempfile.mkdtemp(prefix="sweep-smoke-"))
+    env = dict(os.environ, SWEEP_HOME=str(home))
+
+    print(f"sweep smoke test — python {sys.version.split()[0]} on {sys.platform}")
+    print(f"database: {home}")
+
+    # ---- 1. doctor, on the *default* database path -------------------------
+    # No --db here. That is the point: this is the call that a first-time user
+    # makes, and the one that the NameError above broke.
+    doctor = subprocess.run(
+        ["sweep", "--no-color", "doctor"],
+        capture_output=True, text=True, timeout=120, env=env,
+    )
+    print("\n$ sweep doctor")
+    check("doctor exits 0", doctor.returncode == 0, doctor.stderr.strip()[-400:])
+    check("doctor names this host", "Host:" in doctor.stdout)
+    check(
+        "doctor reports at least one band either way",
+        "sensing" in doctor.stdout or "not available" in doctor.stdout,
+    )
+    check("doctor does not traceback", "Traceback" not in doctor.stderr)
+
+    # ---- 2. the database was actually created where it was asked to be -----
+    check("default database honours SWEEP_HOME", (home / "sweep.db").exists(),
+          f"nothing at {home / 'sweep.db'}")
+
+    # ---- 3. hwscan ---------------------------------------------------------
+    hw = subprocess.run(
+        ["sweep", "--no-color", "hwscan"],
+        capture_output=True, text=True, timeout=120, env=env,
+    )
+    print("\n$ sweep hwscan")
+    check("hwscan exits 0", hw.returncode == 0, hw.stderr.strip()[-400:])
+    check("hwscan does not traceback", "Traceback" not in hw.stderr)
+
+    # ---- 4. a real (if short) sweep, and a machine-readable report ---------
+    run = subprocess.run(
+        ["sweep", "--no-color", "--json", "sweep", "--duration", "4", "--quiet"],
+        capture_output=True, text=True, timeout=180, env=env,
+    )
+    print("\n$ sweep --json sweep --duration 4")
+    check("sweep exits 0", run.returncode == 0, run.stderr.strip()[-400:])
+    report: dict = {}
+    try:
+        report = json.loads(run.stdout)
+        check("sweep emits valid JSON", True)
+    except json.JSONDecodeError as exc:
+        check("sweep emits valid JSON", False, str(exc))
+    if report:
+        for key in ("session", "coverage", "devices", "stats"):
+            check(f"report has '{key}'", key in report)
+        check("report states its own coverage", bool(report.get("coverage")))
+
+    # ---- 5. the web UI, served and fetched over real HTTP ------------------
+    # Loopback is treated as the host, so no token is needed here.
+    print(f"\n$ sweep serve --port {PORT} (background)")
+    server = subprocess.Popen(
+        ["sweep", "--no-color", "serve", "--port", str(PORT),
+         "--no-qr", "--duration", "60"],
+        stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, env=env,
+    )
+    try:
+        status, body = 0, ""
+        deadline = time.time() + 45
+        while time.time() < deadline:
+            if server.poll() is not None:
+                break
+            try:
+                status, body = get("/api/state", timeout=2.0)
+                if status:
+                    break
+            except Exception:
+                time.sleep(0.5)
+
+        check("server answers /api/state", status == 200, f"status {status}")
+        state: dict = {}
+        if status == 200:
+            try:
+                state = json.loads(body)
+            except json.JSONDecodeError as exc:
+                check("/api/state is JSON", False, str(exc))
+        if state:
+            for key in ("devices", "stats", "sensors", "epoch"):
+                check(f"state has '{key}'", key in state)
+
+        status, page = get("/")
+        check("index page is served", status == 200, f"status {status}")
+        check("index page is the sweep UI", "sweep" in page.lower())
+
+        # Static assets travel inside the wheel via package-data. When that is
+        # misconfigured the install succeeds and every asset 404s, which is
+        # invisible until someone opens the page.
+        for asset in ("/app.css", "/app.js", "/manifest.webmanifest"):
+            status, _ = get(asset)
+            check(f"asset {asset} is served", status == 200, f"status {status}")
+
+        status, _ = get("/api/capability")
+        check("capability endpoint answers", status == 200, f"status {status}")
+
+        status, _ = get("/api/nonsense")
+        check("unknown route 404s rather than 500s", status == 404, f"status {status}")
+    finally:
+        server.terminate()
+        try:
+            out, _ = server.communicate(timeout=20)
+        except subprocess.TimeoutExpired:
+            server.kill()
+            out, _ = server.communicate(timeout=20)
+        check("server shut down without a traceback", "Traceback" not in (out or ""),
+              (out or "")[-400:])
+
+    print(f"\n{checks - len(failures)}/{checks} checks passed")
+    if failures:
+        print("failed: " + ", ".join(failures))
+        return 1
+    print("smoke test passed")
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

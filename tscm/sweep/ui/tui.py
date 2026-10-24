@@ -117,7 +117,8 @@ class Tui:
             return
         if key == "a":
             self.show_all = not self.show_all
-            self.notify("Showing all devices." if self.show_all else "Showing unresolved devices only.")
+            self.notify("Showing all devices." if self.show_all
+                        else "Showing unresolved devices only.")
             return
 
         if self.view == "find":
@@ -222,7 +223,10 @@ class Tui:
             marker = self.paint.c("▸", "white", bold=True) if i == self.cursor else " "
             risk = dev.risk
             bar = render.signal_bar(dev.rssi, 14)
-            bar = self.paint.c(bar, "red" if risk >= 3 else "green" if (dev.rssi or -99) > -60 else "grey")
+            bar = self.paint.c(
+                bar,
+                "red" if risk >= 3 else "green" if (dev.rssi or -99) > -60 else "grey",
+            )
             dbm = f"{dev.rssi:.0f}" if dev.rssi is not None else "  ?"
             dist = dev.estimated_distance_m()
             dist_s = f"{dist:.1f}" if dist is not None and dist < 300 else "  ?"
@@ -283,14 +287,16 @@ class Tui:
             for key, value in interesting:
                 src = dev.attr_source.get(key, "")
                 lines.append(
-                    f"    {self.paint.dim(key.ljust(24))} {render.truncate(str(value), width - 46)} "
+                    f"    {self.paint.dim(key.ljust(24))} "
+                    f"{render.truncate(str(value), width - 46)} "
                     f"{self.paint.dim('(' + src + ')') if src else ''}"
                 )
 
         links = self.engine.fusion.link_history(dev.id)
         if links:
             lines.append("")
-            lines.append("  " + self.paint.dim("identity links (why we think these are one device)"))
+            lines.append("  " + self.paint.dim(
+                "identity links (why we think these are one device)"))
             for link in links[-6:]:
                 lines.append(
                     f"    {self.paint.dim(f'{link.confidence:.2f}')} "
@@ -344,7 +350,8 @@ class Tui:
             direction = "closer" if reading.delta_db > 0 else "farther"
             lines.append("   " + self.paint.dim(
                 f"{reading.delta_db:+.1f} dB vs the last {self.engine.ranger.baseline_window:.0f}s "
-                f"→ roughly {reading.distance_ratio:.2f}× the distance ({direction})"
+                # The multiplication sign below is deliberate typography.
+                f"→ roughly {reading.distance_ratio:.2f}× the distance ({direction})"  # noqa: RUF001
             ))
 
         lines.append("")

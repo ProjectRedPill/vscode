@@ -3,7 +3,7 @@
 from .engine import Engine, EngineConfig
 from .fusion import Fusion, FusionConfig
 from .models import Band, Device, DeviceClass, Finding, Observation, Track, Trust
-from .rssi import Heat, KalmanRssi, RangeReading, Ranger
+from .rssi import Heat, KalmanRssi, Ranger, RangeReading
 from .store import Store
 
 __all__ = [

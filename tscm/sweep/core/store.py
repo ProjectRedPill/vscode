@@ -22,9 +22,11 @@ from __future__ import annotations
 import json
 import os
 import sqlite3
+import sys
 import time
+from collections.abc import Iterable
 from pathlib import Path
-from typing import Any, Iterable
+from typing import Any
 
 from .models import Device, Finding, Trust
 

@@ -17,7 +17,7 @@ import types
 import pytest
 
 from sweep.core.fusion import Fusion, FusionConfig
-from sweep.core.models import Band, DeviceClass, Finding, Observation, Trust
+from sweep.core.models import Band, Finding, Observation, Trust
 from sweep.sensors import serialbridge
 from sweep.sensors.ble import parse_bctl_rssi
 from sweep.sensors.wifi import WifiSensor

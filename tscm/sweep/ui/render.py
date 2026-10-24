@@ -119,7 +119,7 @@ def big_number(text: str) -> list[str]:
 
 def bar(fraction: float, width: int, *, filled: str = "█", empty: str = "░") -> str:
     fraction = max(0.0, min(1.0, fraction))
-    n = int(round(fraction * width))
+    n = round(fraction * width)
     return filled * n + empty * (width - n)
 
 
@@ -149,13 +149,15 @@ def table(
                   for i, h in enumerate(headers)]
 
     out = [
-        "  ".join(p.dim(h.ljust(w)[:w]) for h, w in zip(headers, widths)),
+        "  ".join(p.dim(h.ljust(w)[:w]) for h, w in zip(headers, widths, strict=True)),
         p.dim("─" * (sum(widths) + 2 * (len(widths) - 1))),
     ]
     for row in rows:
         out.append("  ".join(
             truncate(cell, w).ljust(w + (len(cell) - len(_strip(cell))))
-            for cell, w in zip(row, widths)
+            # Not strict: a short row should render short, not abort a screen
+            # redraw mid-sweep.
+            for cell, w in zip(row, widths, strict=False)
         ))
     return out
 

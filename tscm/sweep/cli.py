@@ -21,7 +21,7 @@ import sys
 import time
 from typing import Any
 
-from .core.engine import Engine, EngineConfig, device_dict
+from .core.engine import Engine, EngineConfig
 from .core.fusion import FusionConfig
 from .core.models import Trust
 from .core.rssi import path_loss_env_factor
@@ -209,7 +209,9 @@ async def cmd_scan(args: argparse.Namespace, painter: Painter) -> int:
     await engine.start()
     tui = Tui(engine, color=painter.color)
     engine.on_finding(
-        lambda dev, f: tui.notify(f"{f.severity_label.upper()}: {dev.display_name()} — {f.title}", 8.0)
+        lambda dev, f: tui.notify(
+            f"{f.severity_label.upper()}: {dev.display_name()} — {f.title}", 8.0
+        )
     )
 
     ui_task = asyncio.create_task(tui.run())
@@ -277,11 +279,17 @@ async def cmd_find(args: argparse.Namespace, painter: Painter) -> int:
 
 async def cmd_sweep(args: argparse.Namespace, painter: Painter) -> int:
     engine = Engine(engine_config(args))
+
+    # When a JSON report is going to stdout, everything else has to go to
+    # stderr — otherwise `sweep --json sweep > report.json` produces a file
+    # that starts with the probe banner and parses as nothing at all.
+    chatter = sys.stderr if (args.json and not args.out) else sys.stdout
+
     statuses = await engine.probe()
-    _print_probe(statuses, painter)
+    _print_probe(statuses, painter, stream=chatter)
 
     if not any(s.available for s in statuses):
-        print(painter.c("No sensors are usable — nothing to sweep.", "red"))
+        print(painter.c("No sensors are usable — nothing to sweep.", "red"), file=chatter)
         return 2
 
     await engine.start()
@@ -291,7 +299,7 @@ async def cmd_sweep(args: argparse.Namespace, painter: Painter) -> int:
         tui = Tui(engine, color=painter.color)
         ui_task = asyncio.create_task(tui.run())
     else:
-        print(painter.dim(f"sweeping for {args.duration:.0f}s …"))
+        print(painter.dim(f"sweeping for {args.duration:.0f}s …"), file=chatter)
 
     # Give the sensors a moment to populate, then freeze the baseline so
     # "arrived during the sweep" means something.
@@ -315,7 +323,9 @@ async def cmd_sweep(args: argparse.Namespace, painter: Painter) -> int:
         await engine.shutdown()
 
     if args.out:
-        with open(args.out, "w", encoding="utf-8") as fh:
+        # The engine is already shut down here; nothing else is waiting on this
+        # event loop, so one blocking write of a report is fine.
+        with open(args.out, "w", encoding="utf-8") as fh:  # noqa: ASYNC230
             fh.write(text)
         print(painter.c(f"report written to {args.out}", "green"))
     else:
@@ -724,11 +734,12 @@ def _print_serve_banner(
     print()
 
 
-def _print_probe(statuses: list[Any], painter: Painter) -> None:
+def _print_probe(statuses: list[Any], painter: Painter, stream: Any = None) -> None:
+    stream = stream or sys.stdout
     for s in statuses:
         mark = painter.c("✔", "green") if s.available else painter.c("·", "grey")
         line = f"  {mark} {s.name:<12} {s.reason}"
-        print(line if s.available else painter.dim(line))
+        print(line if s.available else painter.dim(line), file=stream)
 
 
 def _closing_summary(engine: Engine, painter: Painter) -> str:

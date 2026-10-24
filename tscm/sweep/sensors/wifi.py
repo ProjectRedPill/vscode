@@ -15,7 +15,6 @@ requirement.
 from __future__ import annotations
 
 import asyncio
-import json
 import re
 import sys
 from collections.abc import AsyncIterator
@@ -24,6 +23,7 @@ from typing import Any
 from ..core.models import Band, Observation
 from ..intel import oui
 from .base import Sensor
+
 
 # Channel → frequency, for the bands consumer gear uses.
 def _freq_from_channel(ch: int) -> float | None:
@@ -55,7 +55,9 @@ class WifiSensor(Sensor):
             )
             import os
 
-            if os.path.exists(airport):
+            # One stat of a fixed local path during probing — not worth a
+            # thread hop.
+            if os.path.exists(airport):  # noqa: ASYNC240
                 self._mode = "airport"
                 return True, "airport"
             if self.which("wdutil"):
@@ -191,7 +193,7 @@ class WifiSensor(Sensor):
                 attrs["channel"] = _int(s.split("channel")[-1])
             elif "capability:" in s:
                 attrs["capabilities"] = s.split(":", 1)[1].strip()
-            elif s.startswith("RSN:") or s.startswith("WPA:"):
+            elif s.startswith(("RSN:", "WPA:")):
                 attrs.setdefault("security", []).append(s.split(":")[0])
             elif s.startswith("WPS:"):
                 attrs["wps"] = True
